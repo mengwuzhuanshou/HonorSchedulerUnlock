@@ -1,0 +1,6 @@
+{
+  "version": "v1.8.6",
+  "versionCode": 17,
+  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v1.8.6.zip",
+  "changelog": "首个公开版本：充电时亮屏解锁皮肤温控限流（SCP/UFCS 满档）；app 启动 CPU 满频；滑动限频 0.8G；WebUI 面板与开关。AI 生成模块，仅荣耀 MagicOS + 天玑实测（LDY-AN00）。"
+}
