@@ -19,7 +19,7 @@ case "$1" in
   set)
     k=$2; v=$3
     case "$k" in
-      screen_on_unlock|unlock_when_screen_off|launch_boost|disable_preload)
+      screen_on_unlock|unlock_when_screen_off|launch_boost|disable_preload|fcm_unlock)
         case "$v" in 0|1) ;; *) echo "ERR bad value"; exit 1 ;; esac ;;
       scroll_cap)
         case "$v" in 0|700000|800000|900000) ;; *) echo "ERR bad value"; exit 1 ;; esac ;;

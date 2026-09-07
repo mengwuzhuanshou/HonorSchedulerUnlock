@@ -59,10 +59,55 @@ launch_boost_ms=2000
 scroll_cap=800000
 # keep iAware app-preload features off (cloud may re-push values)
 disable_preload=1
+# --- FCM keep-alive unlock (v1.9; mechanism notes in docs/FCM通路逆向笔记.md) ---
+# Honor China ROM probes "google connectivity" by HTTP-GETting google.com; on
+# failure it silently drops GMS partial wakelocks (MCS push dies in doze),
+# PowerGenie firewall-blocks the GMS uid, and after a 7-day grace iAware strips
+# GMS apps of their background privileges. All three layers key off that probe.
+fcm_unlock=1
+# probe re-assert interval (seconds); also re-runs the keepalive/grace/gms keeps
+fcm_interval=1800
+# URLs fed to the probe (must answer HTTP 200, be reachable in CN; probe stops
+# at the first success). Oversea-SIM devices short-circuit to OK anyway.
+fcm_probe_urls=http://www.baidu.com,http://www.qq.com
+# notifyGoogleKeepAlive(com.google.android.gms, true): freeze-exempt + unfreeze GMS
+fcm_keepalive=1
+# keep persist.sys.iaware_google_conn="0,1" so every boot starts a fresh 7-day grace
+fcm_grace_keeper=1
+# keep Settings.Secure google_service_status=1 (google components enabled)
+fcm_gms_on=1
 verbose=0
 EOF
 fi
 # shellcheck disable=SC1090
+. "$CONF" 2>/dev/null
+
+# merge keys added by upgrades into existing confs (template above is only
+# written on first install; never clobber values already present)
+conf_add() {
+  grep -q "^$1=" "$CONF" 2>/dev/null || echo "$1=$2" >> "$CONF"
+}
+conf_add screen_on_unlock 1
+conf_add unlock_when_screen_off 1
+conf_add poll_interval 0.3
+conf_add temp_guard 0
+conf_add protocol_poke 1
+conf_add include_lvc 1
+conf_add max_iin 20000
+conf_add launch_boost 1
+conf_add launch_boost_ms 2000
+conf_add scroll_cap 800000
+conf_add disable_preload 1
+conf_add fcm_unlock 1
+conf_add fcm_interval 1800
+conf_add fcm_probe_urls "http://www.baidu.com,http://www.qq.com"
+conf_add fcm_keepalive 1
+conf_add fcm_grace_keeper 1
+conf_add fcm_gms_on 1
+conf_add verbose 0
+# re-source: conf_add only appends to the file, but an upgraded conf means the
+# first source above ran without the new keys -> without this, fcm_* stay
+# empty until the next reboot (same class of bug as the v1.8.0 template lesson)
 . "$CONF" 2>/dev/null
 
 log() {
@@ -221,6 +266,56 @@ if [ "$scroll_cap" != "0" ] && [ -n "$scroll_cap" ]; then
   log "scroll_cap watcher started (v2 QoS cap=$scroll_cap)"
 fi
 
+# ---------- FCM keep-alive unlock (v1.9) ----------
+# All calls are uid-1000 binder transactions on the "pgservice" service
+# (PGManagerService, IPGManager AIDL):
+#   tx12 setPgConfig(6 /*CONFIG_TYPE_GOOGLE_CTRL*/, 0, urls)
+#        -> PGGoogleServicePolicy probes those URLs instead of google.com;
+#           first HTTP 200 flips the whole ROM into "google connected" state
+#           (wakelock filter off, no uid firewall, iAware grace maintained).
+#   tx21 notifyGoogleKeepAlive("com.google.android.gms", true)
+#        -> setPgShouldNotFreeze + immediate unfreeze of GMS processes.
+# Root-only, no persistent processes, no LSP injection (broken on Honor).
+FCM_STF=/data/adb/honor_charge_unlock.fcm
+fcm_urls=$(printf '%s' "$fcm_probe_urls" | tr -d ' \t\r' | tr ',' ' ')
+fcm_avail=1
+
+fcm_assert() {
+  [ "$fcm_avail" = "1" ] || return 2
+  [ -n "$fcm_urls" ] || { echo "off no-urls" > "$FCM_STF" 2>/dev/null; return 1; }
+  n=0
+  for u in $fcm_urls; do n=$((n+1)); done
+  args="i32 6 i32 0 i32 $n"
+  for u in $fcm_urls; do args="$args s16 $u"; done
+  out=$(su 1000 -c "service call pgservice 12 $args" 2>&1)
+  case "$out" in
+    *00000001*) st=ok ;;
+    *"Can't find service"*|*"not found"*)
+      fcm_avail=0; echo "nosvc" > "$FCM_STF" 2>/dev/null
+      log "fcm: pgservice not available, fcm_unlock disabled this boot"
+      return 2 ;;
+    *) return 1 ;;   # PG not ready yet -> retry shortly
+  esac
+  if [ "$fcm_keepalive" = "1" ]; then
+    su 1000 -c "service call pgservice 21 s16 com.google.android.gms i32 1" >/dev/null 2>&1
+  fi
+  if [ "$fcm_grace_keeper" = "1" ]; then
+    # iAware reads this once per boot: disconn=0(conned-since-epoch), conn=1
+    # -> grace period (default 7d, cloud key google_delaytime) always fresh
+    [ "$(getprop persist.sys.iaware_google_conn)" != "0,1" ] && \
+      setprop persist.sys.iaware_google_conn "0,1" 2>/dev/null
+  fi
+  if [ "$fcm_gms_on" = "1" ] && pm path com.google.android.gms >/dev/null 2>&1; then
+    [ "$(settings get secure google_service_status 2>/dev/null)" != "1" ] && \
+      settings put secure google_service_status 1 2>/dev/null
+  fi
+  echo "$st n=$n" > "$FCM_STF" 2>/dev/null
+  log "fcm: probe urls injected ($n) + keepalive/grace/gms asserted"
+  return 0
+}
+
+fcm_last=0
+
 prev_online=""
 cycle=0
 applied=0
@@ -259,6 +354,19 @@ while :; do
     [ "$(getprop persist.sys.iaware.activitypreload.version)" != "0" ] && setprop persist.sys.iaware.activitypreload.version 0
     [ "$(getprop persist.sys.iaware.preloadoptenable)" != "0" ] && setprop persist.sys.iaware.preloadoptenable 0
     [ "$(getprop persist.sys.iaware.touchdownpreloadenable)" != "0" ] && setprop persist.sys.iaware.touchdownpreloadenable 0
+  fi
+  # FCM keep-alive: re-assert on a wall-clock schedule (default 30 min), not
+  # per-cycle; piggybacks the existing loop so no extra wakeup is created.
+  # date(1) runs only every 90 cycles (~27s plugged / 15min unplugged).
+  if [ "$fcm_unlock" = "1" ] && [ $((cycle % 90)) -eq 0 ] && [ "$fcm_avail" = "1" ]; then
+    now=$(date +%s)
+    if [ $((now - fcm_last)) -ge ${fcm_interval:-1800} ]; then
+      if fcm_assert; then
+        fcm_last=$now
+      else
+        fcm_last=$((now - ${fcm_interval:-1800} + 120))   # retry in ~2 min
+      fi
+    fi
   fi
   cycle=$((cycle + 1))
 

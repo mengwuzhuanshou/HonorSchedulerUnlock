@@ -115,6 +115,7 @@ canvas{width:100%;height:150px;display:block}
   <div class="row"><span class="n">皮肤温控抑制</span><span class="v" id="dTpolicy">—</span></div>
   <div class="row"><span class="n">适配器协议位</span><span class="v" id="dSupport">—</span></div>
   <div class="row"><span class="n">USB 输入上限</span><span class="v" id="dUsbMax">—</span></div>
+  <div class="row"><span class="n">FCM 推送解锁</span><span class="v" id="dFcm">—</span></div>
 </div>
 
 <div class="card">
@@ -123,6 +124,7 @@ canvas{width:100%;height:150px;display:block}
   <div class="row"><span class="n">熄屏也解锁</span><button class="tg" id="tgOff">…</button></div>
   <div class="row"><span class="n">app启动时cpu满频率</span><button class="tg" id="tgLb">…</button></div>
   <div class="row"><span class="n">禁用app预加载iaware</span><button class="tg" id="tgPre">…</button></div>
+  <div class="row"><span class="n">FCM推送保活解锁(国内谷歌推送)</span><button class="tg" id="tgFcm">…</button></div>
   <div class="row"><span class="n">滑动限频（大簇 policy4）</span><select class="sel" id="selScroll">
     <option value="0">关</option>
     <option value="900000">0.9G</option>
@@ -296,6 +298,14 @@ function render(){
   tgSet('tgOff', D.CONF_UNLOCK_OFF === '1');
   tgSet('tgLb', D.CONF_LAUNCH_BOOST === '1');
   tgSet('tgPre', D.CONF_DISABLE_PRELOAD === '1');
+  tgSet('tgFcm', D.CONF_FCM_UNLOCK === '1');
+  var fcm = D.FCM_STATE || '';
+  var dF = $('dFcm');
+  if (D.CONF_FCM_UNLOCK !== '1') { dFcm.innerHTML = '<span style="color:var(--dim)">已关闭</span>'; }
+  else if (fcm.indexOf('nosvc') >= 0) { dFcm.innerHTML = '<span style="color:#ff8484">不支持(pgservice 缺失)</span>'; }
+  else if (fcm.indexOf('ok') === 0) { dFcm.innerHTML = '<span style="color:var(--ok)">探测已解锁</span>'; }
+  else if (fcm) { dFcm.textContent = '重试中'; }
+  else { dFcm.textContent = '等待守护'; }
   var sv = document.getElementById('selScroll');
   if (sv && document.activeElement !== sv) sv.value = D.CONF_SCROLL_CAP || '0';
   var bp = document.getElementById('btnPause');
@@ -368,6 +378,7 @@ function start(){
   $('tgOff').onclick = function(){ setKey('unlock_when_screen_off', D.CONF_UNLOCK_OFF === '1' ? '0' : '1', this); };
   $('tgLb').onclick = function(){ setKey('launch_boost', D.CONF_LAUNCH_BOOST === '1' ? '0' : '1', this); };
   $('tgPre').onclick = function(){ setKey('disable_preload', D.CONF_DISABLE_PRELOAD === '1' ? '0' : '1', this); };
+  $('tgFcm').onclick = function(){ setKey('fcm_unlock', D.CONF_FCM_UNLOCK === '1' ? '0' : '1', this); };
   $('selScroll').onchange = function(){ setKey('scroll_cap', this.value, this); };
   $('btnPause').onclick = async function(){ await ctl(D.PAUSED === '1' ? 'resume' : 'pause'); tick(); };
   $('btnRestart').onclick = async function(){ var b = this; b.textContent = '…'; await ctl('restart'); setTimeout(function(){ b.textContent = '重启'; tick(); }, 1200); };

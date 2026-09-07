@@ -1,6 +1,6 @@
 {
-  "version": "v1.8.6",
-  "versionCode": 17,
-  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v1.8.6.zip",
-  "changelog": "首个公开版本：充电时亮屏解锁皮肤温控限流（SCP/UFCS 满档）；app 启动 CPU 满频；滑动限频 0.8G；WebUI 面板与开关。AI 生成模块，仅荣耀 MagicOS + 天玑实测（LDY-AN00）。"
+  "version": "v1.9.0",
+  "versionCode": 18,
+  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v1.9.0.zip",
+  "changelog": "v1.9.0：新增 FCM 推送保活解锁——国行 ROM 用谷歌连通性探测决定 GMS 生死（探测失败: 掐 wakelock + UID 断网 + 撤后台优待），本版用系统自有接口把探测源换到国内可达地址，三层一次解除（纯 root、零 hook、零常驻进程）。另修复升级时 conf 缺键需重启才生效的问题。"
 }

@@ -1,7 +1,7 @@
 id=honor_charge_unlock
 name=Honor Scheduler Unlock (MTK)
-version=v1.8.6
-versionCode=17
+version=v1.9.0
+versionCode=18
 author=mengwuzhuanshou (AI-generated)
-description=荣耀调度解锁（AI 生成）: 充电时亮屏解锁皮肤温控限流（SCP 66W / UFCS 80W 直充满档）+ app 启动时 CPU 满频率 + 滑动时 CPU 降频省电（0.8G）。适用荣耀 MagicOS + 天玑(MTK) 架构，仅 LDY-AN00（天玑 9500 / MagicOS 10）实测。Config: /data/adb/honor_charge_unlock.conf
+description=荣耀调度解锁（AI 生成）: 充电时亮屏解锁皮肤温控限流（SCP 66W / UFCS 80W 直充满档）+ app 启动时 CPU 满频率 + 滑动时 CPU 降频省电（0.8G）+ FCM 推送保活解锁（国行谷歌连通性探测换源，防 GMS 断网/断推送，v1.9）。适用荣耀 MagicOS + 天玑(MTK) 架构，仅 LDY-AN00（天玑 9500 / MagicOS 10）实测。Config: /data/adb/honor_charge_unlock.conf
 updateJson=https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/update.json

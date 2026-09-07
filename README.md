@@ -2,7 +2,7 @@
 
 > ⚠️ **AI 生成声明 / AI-generated**: 本模块的逆向分析、代码与文档均由 AI 生成，并在下述设备上完成实测；请自行评估风险后使用。
 
-纯 root 脚本模块（KSU / Magisk 双兼容），不依赖 Xposed。功能：**充电时亮屏解锁皮肤温控限流**（SCP/UFCS 直充满档）+ **app 启动时 CPU 满频率** + **滑动时 CPU 降频省电**（大簇 0.8G）。
+纯 root 脚本模块（KSU / Magisk 双兼容），不依赖 Xposed。功能：**充电时亮屏解锁皮肤温控限流**（SCP/UFCS 直充满档）+ **app 启动时 CPU 满频率** + **滑动时 CPU 降频省电**（大簇 0.8G）+ **FCM 推送保活解锁**（国行 ROM 谷歌连通性探测换源，防 GMS 被断网/断推送，v1.9）。
 
 ## 适用范围（重要）
 
@@ -12,7 +12,19 @@
 | 🟡 理论可适配（未实测） | 其它荣耀 MagicOS + 天玑(MTK) 机型：需存在荣耀直充节点 `/sys/class/hw_power/charger/direct_charger_*` 与 MT6379 系充电 IC | 其它 MTK perfserv 架构机型：需存在 `/proc/powerhal_cpu_ctrl/perfserv_freq`（powerhal_cpu_ctrl.ko） |
 | ❌ 不适用 | 荣耀高通(Qualcomm)机型（充电栈完全不同）、非 MagicOS | 高通机型（无 MTK perfserv 栈）、无 root |
 
-安装时若 `/sys/class/hw_power/charger/direct_charger_hsc` 不存在（customize.sh 会提示），充电解锁功能在本机无效；CPU 部分取决于 `/proc/powerhal_cpu_ctrl/` 是否存在。
+安装时若 `/sys/class/hw_power/charger/direct_charger_hsc` 不存在（customize.sh 会提示），充电解锁功能在本机无效；CPU 部分取决于 `/proc/powerhal_cpu_ctrl/` 是否存在；FCM 解锁取决于系统服务 `pgservice`（荣耀 MagicOS 国行均有，服务缺失时功能自动静默停用）。
+
+### FCM 推送保活解锁（v1.9）
+
+| | 说明 |
+|---|---|
+| ✅ 实测 | 荣耀 Magic8 Pro Air（LDY-AN00，国行 MagicOS 10）：binder 注入成功、探测被换源触发、接口语义与逆向一致 |
+| 🎯 目标场景 | 国行荣耀（`msc.config.optb=156`）+ 国内网络：GMS 已登录但推送收不到/熄屏断推 |
+| 🟢 海外机器 | 无害 no-op：非 460 运营商 + 探测成功过一次后系统直接短路判"连通"，注入只是让该状态更稳 |
+
+**原理**（完整逆向见 `docs/FCM通路逆向笔记.md`）：国行 ROM 的 system_server 内有 `PGGoogleServicePolicy`，周期 HTTP 探测 google.com/accounts.google.com 判定"谷歌连通性"；探测失败会 ①静默拒绝 GMS 的 partial wakelock（熄屏后推送长连接饿死）②PowerGenie 以 UID 防火墙直接断 GMS 网络 ③iAware 在 7 天宽限后撤掉 GMS 应用后台优待。模块用 root 以 uid 1000 调用系统自有接口 `pgservice.setPgConfig(6, urls)` 把探测 URL 换成国内可达地址（默认 baidu/qq），探测恒成功 → 三层全部不触发；另调用 `notifyGoogleKeepAlive` 给 GMS 冻结豁免、维持 `google_service_status=1` 与 iAware 宽限标记。
+
+**耗电**：每 30 分钟 2 次 binder 调用 + 1 次 setprop + 1 次 settings 读（一次性 fork，毫秒级）+ 系统探测本体 1 次 HTTP GET。无常驻进程、无新增轮询。`fcm_unlock=0` 全停；探测 URL 列表只存内存，卸载/关闭后重启即恢复出厂。
 
 > 模块 id 仍为 `honor_charge_unlock`（配置/数据路径 `/data/adb/honor_charge_unlock.*` 沿用），更名不改 id 以兼容已有安装与配置。
 
@@ -78,6 +90,12 @@ poll_interval=2           # 轮询秒数，系统 6~9s 会写回限值，勿设�
 temp_guard=450            # 电池温度 ≥45.0°C 时暂停解锁（安全阀，0=关闭保护）
 protocol_poke=1           # 开机/插电时尝试写 pd/hvc/hsc 使能节点
 include_lvc=1             # 同时重置 LVC 路径
+fcm_unlock=1              # FCM 推送保活解锁（探测换源+冻结豁免+宽限保持）
+fcm_interval=1800         # FCM 重申间隔（秒）
+fcm_probe_urls=http://www.baidu.com,http://www.qq.com  # 探测源（需国内可达且返回 HTTP 200）
+fcm_keepalive=1           # GMS 冻结豁免（notifyGoogleKeepAlive）
+fcm_grace_keeper=1        # iAware 宽限标记保持
+fcm_gms_on=1              # google_service_status 保持为 1
 verbose=0                 # 1=写日志 /data/adb/honor_charge_unlock.log
 ```
 
@@ -149,6 +167,18 @@ KernelSU 管理器 → 模块详情 → **WebUI** 打开实时面板：
 - **开关面板**：亮屏解锁 / 熄屏也解锁 / 启动拉满 / 禁用预加载 四个开关 + 滑动限频档位选择（关/0.9G/0.8G/0.7G/0.6G）+ 守护暂停/重启。改动写入 `/data/adb/honor_charge_unlock.conf`（`webui_ctl.sh set` 白名单校验）并自动重载守护，约 12s 全部生效。
 - **状态修复**：`守护进程 ✕` —— 旧检测只认 pidfile 且在 WebUI 上下文读不到 /data/adb 时恒 0 → 现为 pidfile+cmdline 校验 + pgrep 回退；`被压制` —— 旧逻辑单次采样 iin_thermal（系统 4.4s 压回一次，撞窗 ~9% 概率误报，未充电/暂停时恒误报）→ 现为 3 次采样取 max + USB 在线/暂停状态区分（未充电显示“未充电”，暂停显示“已暂停”）。
 - 新增 `LB_ACTIVE` 实时指示（启动拉满生效中）；守护启动时清理残留 flag。
+
+### 更新检测（KSU updateJson）
+
+模块 `module.prop` 带 `updateJson` 字段（指向 jsdelivr CDN 的 `update.json`）。KernelSU 管理器会周期拉取并比对 `versionCode`，发现新版后在模块页提示更新，点击即下载 `zipUrl` 安装。
+
+发新版的完整动作：
+
+1. `module.prop` bump `version` / `versionCode`
+2. 打包 zip 放入 `dist/`，更新根目录 `update.json` 的 `version` / `versionCode` / `zipUrl` / `changelog`
+3. commit + push（jsdelivr 与 raw 线路自动生效），可选创建 GitHub Release 附带 zip
+
+`update.json` 同时存在于 jsdelivr（国内可达）与 raw.githubusercontent 两条线路。
 
 ### tools/ 说明
 
