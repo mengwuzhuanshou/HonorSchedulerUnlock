@@ -1,0 +1,6 @@
+id=freqgov_launch
+name=FreqGov Launch Boost
+version=v2.0.0
+versionCode=200
+author=DSH RE
+description=App cold-start full-freq boost (p0/p4/p7 min=max pin, renewal-dominant) + optional scroll clamp 0.9G. Channel: /proc/powerhal_cpu_ctrl/perfserv_freq QoS votes. Config: /data/adb/freqgov.conf
