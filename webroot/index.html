@@ -74,7 +74,7 @@ canvas{width:100%;height:150px;display:block}
 <div class="card">
   <h2>直充三路（热限流实时值 / 满档）</h2>
   <div id="dcRows"></div>
-  <div class="note">lvc=5.5V 低压直充, sc=SCP 11V, hsc=UFCS。被系统压回时约为 5000-7000, 解锁即满档。</div>
+  <div class="note">lvc=5.5V 低压直充, sc=SCP 11V, hsc=UFCS。被系统压回时约为 5000-7000, 解锁即满档。显示 "—" = 未进入直充（普通 USB/5V 头或 SDP 场景无直充, 属正常）。</div>
 </div>
 
 <div class="card">
@@ -221,24 +221,32 @@ async function setKey(k, v, btn){
 function render(){
   var $ = function(id){ return document.getElementById(id); };
   var status = D.B_STATUS || '—';
-  var cap = num(D.B_CAP), volt = num(D.B_VOLT), cur = num(D.B_CUR), temp = num(D.B_TEMP);
-  var powerW = (volt !== null && cur !== null) ? Math.abs(volt * cur) / 1e12 : null;
+  var cap = num(D.B_CAP), volt = num(D.B_VOLT), temp = num(D.B_TEMP);
+  // current: prefer the more informative of uevent / battery/current_now; some
+  // builds keep the gauge node updated but freeze the uevent copy (and vice versa)
+  var curU = num(D.B_CUR), curN = num(D.B_CUR_NODE);
+  var cur = null;
+  [curU, curN].forEach(function(v){ if (v === null) return; if (cur === null || Math.abs(v) > Math.abs(cur)) cur = v; });
+  // a near-zero reading from a frozen gauge is noise (real charging is >=100mA)
+  if (cur !== null && Math.abs(cur) < 100) cur = null;
+  // unit autodetect: gauge nodes are usually µA; plain small values are mA
+  var curIsUa = cur !== null && Math.abs(cur) >= 10000;
+  var powerW = (volt !== null && cur !== null) ? Math.abs(volt * (curIsUa ? cur : cur * 1000)) / 1e12 : null;
 
   $('dStatus').textContent = status;
   $('dStatus').style.color = (status === 'Charging' || status === 'Full') ? 'var(--ok)' : 'var(--tx)';
   $('dPower').innerHTML = powerW === null ? '—' : powerW.toFixed(1) + ' <small>W</small>';
   $('dCap').innerHTML = (cap === null ? '—' : cap) + ' <small>%</small>';
-  $('dCur').innerHTML = cur === null ? '—' : Math.abs(cur/1000).toFixed(0) + ' <small>mA</small>';
+  $('dCur').innerHTML = cur === null ? '—' : (curIsUa ? Math.abs(cur/1000).toFixed(0) : Math.abs(cur).toFixed(0)) + ' <small>mA</small>';
   $('dVolt').innerHTML = volt === null ? '—' : (volt/1e6).toFixed(3) + ' <small>V</small>';
   $('dTemp').innerHTML = temp === null ? '—' : (temp/10).toFixed(1) + ' <small>°C</small>';
 
   // protocol bitmap
   var chips = '';
-  (D.PROTO || '').split(' ').forEach(function(tok){
-    tok = tok.trim(); if (!tok) return;
-    var p = tok.split(' ');
-    chips += chip(p[0], p[1] === '1');
-  });
+  var toks = (D.PROTO || '').split(/\s+/).filter(Boolean);
+  for (var ti = 0; ti + 1 < toks.length; ti += 2) {
+    chips += chip(toks[ti], toks[ti + 1] === '1');
+  }
   $('protoChips').innerHTML = chips || '—';
   $('dUsbType').textContent = D.USB_TYPE || '—';
   $('dPcUsbType').textContent = (D.PC_USTYPE || '—').replace(/^\[|\]$/g,'');
@@ -301,9 +309,12 @@ function render(){
   tgSet('tgFcm', D.CONF_FCM_UNLOCK === '1');
   var fcm = D.FCM_STATE || '';
   var dF = $('dFcm');
+  var mcs = num(D.MCS_CONN) || 0;
   if (D.CONF_FCM_UNLOCK !== '1') { dFcm.innerHTML = '<span style="color:var(--dim)">已关闭</span>'; }
   else if (fcm.indexOf('nosvc') >= 0) { dFcm.innerHTML = '<span style="color:#ff8484">不支持(pgservice 缺失)</span>'; }
-  else if (fcm.indexOf('ok') === 0) { dFcm.innerHTML = '<span style="color:var(--ok)">探测已解锁</span>'; }
+  else if (fcm.indexOf('probe:fail') >= 0) { dFcm.innerHTML = '<span style="color:#ff8484">探测失败(检查URL)</span>'; }
+  else if (fcm.indexOf('ok') === 0 && mcs > 0) { dFcm.innerHTML = '<span style="color:var(--ok)">推送已连接</span>'; }
+  else if (fcm.indexOf('ok') === 0) { dFcm.innerHTML = '<span style="color:var(--warn)">已解锁 · MCS未连(需全局VPN)</span>'; }
   else if (fcm) { dFcm.textContent = '重试中'; }
   else { dFcm.textContent = '等待守护'; }
   var sv = document.getElementById('selScroll');

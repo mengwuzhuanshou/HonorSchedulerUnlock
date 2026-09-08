@@ -19,6 +19,7 @@ echo "B_TEMP=$(ub "$B/uevent" POWER_SUPPLY_TEMP)"
 echo "B_CAP=$(ub "$B/uevent" POWER_SUPPLY_CAPACITY)"
 echo "B_VOLT=$(ub "$B/uevent" POWER_SUPPLY_VOLTAGE_NOW)"
 echo "B_CUR=$(ub "$B/uevent" POWER_SUPPLY_CURRENT_NOW)"
+echo "B_CUR_NODE=$(cat $B/current_now 2>/dev/null | head -n 1)"
 echo "B_CYCLE=$(ub "$B/uevent" POWER_SUPPLY_CYCLE_COUNT)"
 echo "B_FCC=$(ub "$B/uevent" POWER_SUPPLY_CHARGE_FULL)"
 echo "B_FCC_DESIGN=$(ub "$B/uevent" POWER_SUPPLY_CHARGE_FULL_DESIGN)"
@@ -83,6 +84,8 @@ echo "DAEMON=$DAEMON"
 [ -f /data/vendor/thermal/thermal.conf ] && echo "TPOLICY=1" || echo "TPOLICY=0"
 [ -f /data/adb/honor_charge_unlock.thermal_mounted ] && echo "TMARK=1" || echo "TMARK=0"
 [ -f /data/local/tmp/.hcu_lb_active ] && echo "LB_ACTIVE=1" || echo "LB_ACTIVE=0"
+# MCS long-connection state (the wall/VPN layer, separate from the ROM-side probe unlock)
+echo "MCS_CONN=$(ss -tn 2>/dev/null | grep -c ':5228')"
 
 # unlock verdict: max of 3 samples over ~0.5s. The OS re-caps iin_thermal
 # every ~4.4s and the daemon re-unlocks every 0.3s, so a single sample lands

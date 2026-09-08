@@ -311,10 +311,26 @@ fcm_assert() {
   fi
   echo "$st n=$n" > "$FCM_STF" 2>/dev/null
   log "fcm: probe urls injected ($n) + keepalive/grace/gms asserted"
+  # verify the ACTUAL probe verdict (injection success != probe success);
+  # async so the charge-reassert loop never stalls
+  {
+    sleep 8
+    lc=$(logcat -d -t 300 -s PGGoogleServicePolicy:D 2>/dev/null | tail -20)
+    case "$lc" in
+      *"connect google success"*) v="probe:ok" ;;
+      *"connect google failed"*) v="probe:fail" ;;
+      *) v="" ;;
+    esac
+    if [ -n "$v" ]; then
+      echo "$st n=$n $v" > "$FCM_STF" 2>/dev/null
+      log "fcm: probe verdict $v"
+    fi
+  } &
   return 0
 }
 
 fcm_last=0
+fcm_boot_boost=5   # dense 60s re-asserts right after daemon start (PowerGenie re-push race)
 
 prev_online=""
 cycle=0
@@ -358,13 +374,18 @@ while :; do
   # FCM keep-alive: re-assert on a wall-clock schedule (default 30 min), not
   # per-cycle; piggybacks the existing loop so no extra wakeup is created.
   # date(1) runs only every 90 cycles (~27s plugged / 15min unplugged).
+  # Boot boost: PowerGenie re-pushes the stock google list during its own boot,
+  # after our first assert -> dense re-asserts (60s x5) close that race window.
   if [ "$fcm_unlock" = "1" ] && [ $((cycle % 90)) -eq 0 ] && [ "$fcm_avail" = "1" ]; then
     now=$(date +%s)
-    if [ $((now - fcm_last)) -ge ${fcm_interval:-1800} ]; then
+    fcmint=${fcm_interval:-1800}
+    [ "${fcm_boot_boost:-0}" -gt 0 ] && fcmint=60
+    if [ $((now - fcm_last)) -ge $fcmint ]; then
       if fcm_assert; then
         fcm_last=$now
+        [ "${fcm_boot_boost:-0}" -gt 0 ] && fcm_boot_boost=$((fcm_boot_boost-1))
       else
-        fcm_last=$((now - ${fcm_interval:-1800} + 120))   # retry in ~2 min
+        fcm_last=$((now - $fcmint + 120))   # retry in ~2 min
       fi
     fi
   fi
