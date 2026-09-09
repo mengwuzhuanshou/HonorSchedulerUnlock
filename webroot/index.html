@@ -11,7 +11,7 @@ body{background:var(--bg);color:var(--tx);font:14px/1.5 -apple-system,"HarmonyOS
 h1{font-size:17px;font-weight:700;margin-bottom:2px}
 .sub{color:var(--dim);font-size:12px;margin-bottom:12px}
 .chip{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600;margin-left:6px;vertical-align:2px}
-.ok{background:#123b2a;color:var(--ok)}.warn{background:#3d2f14;color:var(--warn)}.off{background:#2a3140;color:var(--dim)}
+.ok{background:#123b2a;color:var(--ok)}.warn{background:#3d2f14;color:var(--warn)}.off{background:#2a3140;color:var(--dim)}.bad{background:#3d1a1a;color:#ff8484}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:12px}
 .card h2{font-size:13px;color:var(--dim);font-weight:600;margin-bottom:8px;letter-spacing:.5px}
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
@@ -21,7 +21,7 @@ h1{font-size:17px;font-weight:700;margin-bottom:2px}
 .kv .l{font-size:11px;color:var(--dim)}
 .kv .v{font-size:16px;font-weight:700;white-space:nowrap}
 .kv .v small{font-size:10px;color:var(--dim);font-weight:400}
-.big .v{font-size:26px}
+.big .v{font-size:21px;overflow:hidden;text-overflow:ellipsis}
 .proto{display:flex;flex-wrap:wrap;gap:6px}
 .pchip{padding:4px 10px;border-radius:8px;font-size:12px;font-weight:600;background:var(--off);color:#8b99ad}
 .pchip.on{background:#123b2a;color:var(--ok)}
@@ -44,7 +44,7 @@ canvas{width:100%;height:150px;display:block}
 </head>
 <body>
 <h1>Honor Scheduler Unlock <span class="chip ok" id="chipDaemon">…</span><span class="chip off" id="chipUnlock">…</span></h1>
-<div class="sub" id="sub">荣耀调度解锁 · MagicOS / MTK 面板</div>
+<div class="sub"><span id="sub">荣耀调度解锁 · MagicOS / MTK 面板</span> <span class="chip off" id="chipFcm">…</span> <span class="chip off" id="chipExec">…</span></div>
 <div id="noapi" class="err" style="display:none">未检测到 KernelSU WebUI 桥接。请在 KernelSU 管理器 → 本模块 → WebUI 中打开。当前展示为演示数据。</div>
 
 <div class="card big">
@@ -60,36 +60,18 @@ canvas{width:100%;height:150px;display:block}
 </div>
 
 <div class="card">
-  <h2>协议仲裁（enable_charger 位图 / 适配器）</h2>
-  <div class="proto" id="protoChips"></div>
-  <div style="margin-top:8px">
-    <div class="row"><span class="n">USB 类型</span><span class="v" id="dUsbType">—</span></div>
-    <div class="row"><span class="n">IC 类型(usb_type)</span><span class="v" id="dPcUsbType">—</span></div>
-    <div class="row"><span class="n">适配器协商</span><span class="v" id="dAdapter">—</span></div>
-    <div class="row"><span class="n">当前直充模式</span><span class="v" id="dChgMode">—</span></div>
-    <div class="row"><span class="n">适配器电压</span><span class="v" id="dAdapVolt">—</span></div>
-  </div>
-</div>
-
-<div class="card">
-  <h2>直充三路（热限流实时值 / 满档）</h2>
-  <div id="dcRows"></div>
-  <div class="note">lvc=5.5V 低压直充, sc=SCP 11V, hsc=UFCS。被系统压回时约为 5000-7000, 解锁即满档。显示 "—" = 未进入直充（普通 USB/5V 头或 SDP 场景无直充, 属正常）。</div>
-</div>
-
-<div class="card">
-  <h2>各协议有效档位 iin_limit (mA)</h2>
-  <div id="tierRows"></div>
+  <h2>充电协议实况</h2>
+  <div class="row"><span class="n">当前协议</span><span class="v" id="dProto">—</span></div>
+  <div class="row"><span class="n">握手档位</span><span class="v" id="dHs">—</span></div>
+  <div class="row"><span class="n">物理输入</span><span class="v" id="dCurIn">—</span></div>
+  <div class="note">SCP=荣耀快充, LVC=低压直充相位; PD 识别待样本。拔线/普通 5V 头无直充属正常。</div>
 </div>
 
 <div class="card">
   <h2>曲线（最近 ~5 分钟）</h2>
   <canvas id="chart" width="1060" height="300"></canvas>
-  <div class="legend">
-    <span><i style="background:#4da3ff"></i>电池功率 W</span>
-    <span><i style="background:#39d98a"></i>sc iin_thermal</span>
-    <span><i style="background:#ffb340"></i>hsc iin_thermal</span>
-  </div>
+  <div class="legend"><span><i style="background:#4da3ff"></i>电池功率 W</span></div>
+  <div class="row"><span class="n">本窗口统计</span><span class="v" id="dStat">—</span></div>
 </div>
 
 <div class="card">
@@ -102,7 +84,6 @@ canvas{width:100%;height:150px;display:block}
   </div>
   <div style="margin-top:8px">
     <div class="row"><span class="n">目标 ICC</span><span class="v" id="dTicc">—</span></div>
-    <div class="row"><span class="n">直充成功</span><span class="v" id="dSucc">—</span></div>
     <div class="row"><span class="n">线缆阻抗估计</span><span class="v" id="dRes">—</span></div>
     <div class="row"><span class="n">电池健康(FCF/设计)</span><span class="v" id="dSoh">—</span></div>
     <div class="row"><span class="n">循环次数</span><span class="v" id="dCycle">—</span></div>
@@ -110,21 +91,20 @@ canvas{width:100%;height:150px;display:block}
 </div>
 
 <div class="card">
-  <h2>系统 / 解锁</h2>
-  <div class="row"><span class="n">守护进程</span><span class="v" id="dDaemon">—</span></div>
-  <div class="row"><span class="n">皮肤温控抑制</span><span class="v" id="dTpolicy">—</span></div>
-  <div class="row"><span class="n">适配器协议位</span><span class="v" id="dSupport">—</span></div>
-  <div class="row"><span class="n">USB 输入上限</span><span class="v" id="dUsbMax">—</span></div>
-  <div class="row"><span class="n">FCM 推送解锁</span><span class="v" id="dFcm">—</span></div>
+  <h2>系统状态</h2>
+  <div class="row"><span class="n">GMS推送·VPN</span><span class="v" id="dVlock">—</span></div>
+  <div class="note" id="dVpnGuide">—</div>
 </div>
 
 <div class="card">
   <h2>开关（写入 conf 并自动重载守护）</h2>
-  <div class="row"><span class="n">充电时亮屏解锁皮肤温控</span><button class="tg" id="tgScreen">…</button></div>
-  <div class="row"><span class="n">熄屏也解锁</span><button class="tg" id="tgOff">…</button></div>
+  <div class="row"><span class="n">充电状态下亮屏进行电流对抗</span><button class="tg" id="tgScreen">…</button></div>
+  <div class="row"><span class="n">熄屏也对抗</span><button class="tg" id="tgOff">…</button></div>
   <div class="row"><span class="n">app启动时cpu满频率</span><button class="tg" id="tgLb">…</button></div>
   <div class="row"><span class="n">禁用app预加载iaware</span><button class="tg" id="tgPre">…</button></div>
   <div class="row"><span class="n">FCM推送保活解锁(国内谷歌推送)</span><button class="tg" id="tgFcm">…</button></div>
+  <div class="row"><span class="n">GMS推送·VPN 监控指示器(仅调试用)</span><button class="tg" id="tgVlock">…</button></div>
+  <div class="row"><span class="n">海外区域旁路(optb, 重启生效)</span><button class="tg" id="tgRb">…</button></div>
   <div class="row"><span class="n">滑动限频（大簇 policy4）</span><select class="sel" id="selScroll">
     <option value="0">关</option>
     <option value="900000">0.9G</option>
@@ -187,6 +167,21 @@ function parse(txt){
 }
 
 function num(x){ var v = parseInt(x,10); return isNaN(v) ? null : v; }
+// Battery power + current, single source of truth for BOTH the live panel and
+// the chart. The MTK battery current_now / uevent CURRENT_NOW is mA on this
+// ROM (verified on-device: a CPU load moved it ~1.9A; the gauge nodes are
+// stale). The >=10000 -> µA guard is kept for other ROMs that report µA.
+function calcBattery(){
+  var volt = num(D.B_VOLT);
+  var curU = num(D.B_CUR), curN = num(D.B_CUR_NODE);
+  var cur = null;
+  [curU, curN].forEach(function(v){ if (v === null) return; if (cur === null || Math.abs(v) > Math.abs(cur)) cur = v; });
+  if (cur !== null && Math.abs(cur) < 100) cur = null;         // frozen-gauge noise
+  var curIsUa = cur !== null && Math.abs(cur) >= 10000;
+  var curMA = cur === null ? null : (curIsUa ? Math.abs(cur/1000) : Math.abs(cur));
+  var pW = (volt !== null && cur !== null) ? Math.abs(volt * (curIsUa ? cur : cur*1000)) / 1e12 : null;
+  return {volt:volt, curMA:curMA, pW:pW};
+}
 function fmt(v, unit, div){
   var n = num(v); if (n === null || n === 0 && unit !== 'mA' && unit !== '°C') return '—';
   if (div) n = n / div;
@@ -221,58 +216,64 @@ async function setKey(k, v, btn){
 function render(){
   var $ = function(id){ return document.getElementById(id); };
   var status = D.B_STATUS || '—';
-  var cap = num(D.B_CAP), volt = num(D.B_VOLT), temp = num(D.B_TEMP);
-  // current: prefer the more informative of uevent / battery/current_now; some
-  // builds keep the gauge node updated but freeze the uevent copy (and vice versa)
-  var curU = num(D.B_CUR), curN = num(D.B_CUR_NODE);
-  var cur = null;
-  [curU, curN].forEach(function(v){ if (v === null) return; if (cur === null || Math.abs(v) > Math.abs(cur)) cur = v; });
-  // a near-zero reading from a frozen gauge is noise (real charging is >=100mA)
-  if (cur !== null && Math.abs(cur) < 100) cur = null;
-  // unit autodetect: gauge nodes are usually µA; plain small values are mA
-  var curIsUa = cur !== null && Math.abs(cur) >= 10000;
-  var powerW = (volt !== null && cur !== null) ? Math.abs(volt * (curIsUa ? cur : cur * 1000)) / 1e12 : null;
+  var statusCn = {Charging:'充电中',Discharging:'放电中',Full:'已充满','Not charging':'未充电'}[status] || status;
+  var cap = num(D.B_CAP), temp = num(D.B_TEMP);
+  var bb = calcBattery();
+  var volt = bb.volt, powerW = bb.pW, curMa = bb.curMA;
 
-  $('dStatus').textContent = status;
+  $('dStatus').textContent = statusCn;
   $('dStatus').style.color = (status === 'Charging' || status === 'Full') ? 'var(--ok)' : 'var(--tx)';
   $('dPower').innerHTML = powerW === null ? '—' : powerW.toFixed(1) + ' <small>W</small>';
   $('dCap').innerHTML = (cap === null ? '—' : cap) + ' <small>%</small>';
-  $('dCur').innerHTML = cur === null ? '—' : (curIsUa ? Math.abs(cur/1000).toFixed(0) : Math.abs(cur).toFixed(0)) + ' <small>mA</small>';
+  $('dCur').innerHTML = curMa === null ? '—' : (curMa >= 1000 ? (curMa/1000).toFixed(2) + ' <small>A</small>' : curMa.toFixed(0) + ' <small>mA</small>');
   $('dVolt').innerHTML = volt === null ? '—' : (volt/1e6).toFixed(3) + ' <small>V</small>';
   $('dTemp').innerHTML = temp === null ? '—' : (temp/10).toFixed(1) + ' <small>°C</small>';
 
-  // protocol bitmap
-  var chips = '';
-  var toks = (D.PROTO || '').split(/\s+/).filter(Boolean);
-  for (var ti = 0; ti + 1 < toks.length; ti += 2) {
-    chips += chip(toks[ti], toks[ti + 1] === '1');
+  // charging protocol live view
+  // honor fast-charge heads keep usb/online=0, so charging is judged from the
+  // battery status alone (globally readable)
+  var charging = (status === 'Charging' || status === 'Full');
+  var cin = D.CUR_IN || '';
+  var cinMap = {SDP:'SDP（电脑USB）', CDP:'CDP（电脑USB）', DCP:'DCP（快充头）', PD:'PD', FCP:'FCP'};
+  $('dCurIn').textContent = cin ? (cinMap[cin] || cin) : (charging ? '未知' : '—');
+  // direct-charge lanes decide the protocol: the phone prefers its own
+  // (SCP/UFCS/LVC) whenever the adapter supports it; PD shows up only when
+  // the adapter did NOT take an honor handshake (recognition is provisional
+  // until a PD-only adapter sample is captured)
+  var cmToks = (D.CHG_MODE || '').split(/\s+/).filter(Boolean);
+  var dcActive = [];
+  for (var ci = 0; ci + 1 < cmToks.length; ci += 2) {
+    if (cmToks[ci + 1] === '1') dcActive.push(cmToks[ci].toUpperCase());
   }
-  $('protoChips').innerHTML = chips || '—';
-  $('dUsbType').textContent = D.USB_TYPE || '—';
-  $('dPcUsbType').textContent = (D.PC_USTYPE || '—').replace(/^\[|\]$/g,'');
-  $('dAdapter').textContent = 'type=' + (D.ADP_TYPE || '?') + ' max=' + (D.ADP_VMAX || '?') + 'mV/' + (D.ADP_IMAX || '?') + 'mA';
-  $('dChgMode').textContent = (D.CHG_MODE || '—').replace(/;$/,'');
-  $('dAdapVolt').textContent = (D.ADAP_VOLT || '—').replace(/;$/,'');
+  var proto = '—';
+  var hs = '—';
+  if (charging) {
+    if (dcActive.indexOf('HSC') >= 0) proto = 'UFCS 融合快充';
+    else if (dcActive.indexOf('SC') >= 0) proto = 'SCP（荣耀快充）';
+    else if (dcActive.indexOf('LVC') >= 0) proto = 'LVC 低压直充';
+    else if ((D.UEV_TYPE || '').indexOf('PD') >= 0 || (D.PTYPE || '').indexOf('PD') >= 0) proto = 'PD 快充';
+    else proto = '标准 5V 充电';
+    var hsParts = (D.ADP_HS || '').split(':');
+    var hsmv = num(hsParts[2]), hsmi = num(hsParts[3]);
+    if (hsmv > 0) hs = (hsmv/1000) + 'V/' + hsmi + 'mA（' + Math.round(hsmv/1000*(hsmi/1000)) + 'W 上报）';
+    else hs = '未握手（' + (cin || '?') + ' 仅 5V）';
+  }
+  $('dProto').textContent = proto;
+  $('dHs').textContent = hs;
 
-  // direct charge paths
-  var rows = '';
-  [['lvc','LVC 5.5V'],['sc','SCP 11V'],['hsc','UFCS']].forEach(function(it){
-    var k = it[0];
-    rows += barRow(it[1], D['DC_' + k.toUpperCase() + '_IIN'], D['DC_' + k.toUpperCase() + '_MAX'], 'mA');
+  // full-path (cable) resistance: only the ACTIVE direct-charge lane carries a
+  // real reading (SCP head -> sc lane, UFCS -> hsc, 5V/LVC -> lvc); idle lanes
+  // report 0, so take the max nonzero and gate it by charging
+  var res = null, resLane = '';
+  [['DC_lvc_RES','lvc'],['DC_sc_RES','sc'],['DC_hsc_RES','hsc']].forEach(function(kv){
+    var v = num(D[kv[0]]);
+    if (v !== null && v > 0 && (res === null || v > res)) { res = v; resLane = kv[1]; }
   });
-  $('dcRows').innerHTML = rows;
-  $('dSucc').textContent = 'sc=' + (D.DC_SC_SUCC || '—') + ' hsc=' + (D.DC_HSC_SUCC || '—');
-  var res = num(D.DC_HSC_RES);
-  $('dRes').textContent = res === null ? '—' : res + ' mΩ';
-
-  // tiers
-  var tier = '';
-  (D.IIN_LIMIT || '').split(';').forEach(function(tok){
-    tok = tok.trim(); if (!tok) return;
-    var p = tok.split(/\s+/);
-    if (p.length >= 2) tier += barRow(p[0], p[1], 14500, 'mA');
-  });
-  $('tierRows').innerHTML = tier || '—';
+  // when charging but no lane measured, say WHY (the ROM only populates the
+  // node while a fast-charge lane is active) instead of a bare dash
+  $('dRes').innerHTML = !charging ? '—'
+    : (res !== null ? (res + ' <small>mΩ·' + resLane + '</small>')
+    : '<small style="color:var(--dim)">无快充通道（仅 SCP/UFCS 时可测）</small>');
 
   // charge IC
   $('dIcc').innerHTML = fmt(D.PC_ICC, 'mA', 1000);
@@ -286,37 +287,83 @@ function render(){
   $('dSoh').textContent = (fcc && design) ? (fcc * 100 / design).toFixed(1) + ' %' : (D.B_SOH || '—');
   $('dCycle').textContent = D.B_CYCLE || '—';
 
-  // system
-  $('dDaemon').innerHTML = D.DAEMON === '1' ? '<span style="color:var(--ok)">运行中</span>' : '<span style="color:#ff8484">未运行</span>';
-  $('dTpolicy').textContent = D.TPOLICY === '1' ? '抑制策略已投递' : '未投递';
-  $('dSupport').textContent = D.ADP_SUPPORT ? '0x' + parseInt(D.ADP_SUPPORT,10).toString(16) : '—';
-  $('dUsbMax').textContent = (D.USB_CMAX || '—') + 'µA / ' + (D.USB_VMAX || '—') + 'µV';
+  var sAvg = 0, sPeak = 0;
+  hist.forEach(function(q){ sAvg += q.p; if (q.p > sPeak) sPeak = q.p; });
+  sAvg = hist.length ? sAvg / hist.length : 0;
+  var sMah = sAvg * (hist.length * 3 / 3600) / 4.1 * 1000;
+  $('dStat').innerHTML = hist.length > 2 ? ('均值 ' + sAvg.toFixed(1) + 'W · 峰值 ' + sPeak.toFixed(1) + 'W · ≈' + sMah.toFixed(0) + 'mAh') : '—';
 
   var cd = $('chipDaemon');
   cd.textContent = D.DAEMON === '1' ? '守护进程 ✓' : '守护进程 ✕';
   cd.className = 'chip ' + (D.DAEMON === '1' ? 'ok' : 'off');
   var cu = $('chipUnlock');
-  var sc3 = num(D.DC_SC_IIN3), sc = num(D.DC_SC_IIN);
+  var sc3 = num(D.DC_SC_IIN3), sc = num(D.DC_sc_IIN);
   var eff = Math.max(sc3 || 0, sc || 0);
+  var isCharging = (status === 'Charging' || status === 'Full');
+  var hsParts = (D.ADP_HS || '').split(':');
+  var hsOk = num(hsParts[2]) > 0;                       // adapter reported a tier
+  var dcOn = / 1/.test(D.CHG_MODE || '');               // a direct-charge lane active
+  // original semantics: this chip reports whether the unlock FIGHT is winning.
+  // 被压制 = charging, module should be fighting, but the limit is still capped.
   if (D.PAUSED === '1') { cu.textContent = '已暂停'; cu.className = 'chip off'; }
-  else if (D.USB_ONLINE !== '1') { cu.textContent = '未充电'; cu.className = 'chip off'; }
-  else if (eff >= 11000) { cu.textContent = '解锁生效'; cu.className = 'chip ok'; }
+  else if (!isCharging) { cu.textContent = '未充电'; cu.className = 'chip off'; }
+  else if (eff >= 11000 || dcOn) { cu.textContent = '解锁生效'; cu.className = 'chip ok'; }
   else { cu.textContent = '被压制'; cu.className = 'chip warn'; }
   tgSet('tgScreen', D.CONF_SCREEN_ON_UNLOCK === '1');
   tgSet('tgOff', D.CONF_UNLOCK_OFF === '1');
   tgSet('tgLb', D.CONF_LAUNCH_BOOST === '1');
   tgSet('tgPre', D.CONF_DISABLE_PRELOAD === '1');
   tgSet('tgFcm', D.CONF_FCM_UNLOCK === '1');
+  tgSet('tgVlock', D.CONF_VPN_LOCK === '1');
+  tgSet('tgRb', D.CONF_REGION_BYPASS === '1');
+  // FCM push state -> top chip (compact layering: ROM-side unlock vs network path)
   var fcm = D.FCM_STATE || '';
-  var dF = $('dFcm');
-  var mcs = num(D.MCS_CONN) || 0;
-  if (D.CONF_FCM_UNLOCK !== '1') { dFcm.innerHTML = '<span style="color:var(--dim)">已关闭</span>'; }
-  else if (fcm.indexOf('nosvc') >= 0) { dFcm.innerHTML = '<span style="color:#ff8484">不支持(pgservice 缺失)</span>'; }
-  else if (fcm.indexOf('probe:fail') >= 0) { dFcm.innerHTML = '<span style="color:#ff8484">探测失败(检查URL)</span>'; }
-  else if (fcm.indexOf('ok') === 0 && mcs > 0) { dFcm.innerHTML = '<span style="color:var(--ok)">推送已连接</span>'; }
-  else if (fcm.indexOf('ok') === 0) { dFcm.innerHTML = '<span style="color:var(--warn)">已解锁 · MCS未连(需全局VPN)</span>'; }
-  else if (fcm) { dFcm.textContent = '重试中'; }
-  else { dFcm.textContent = '等待守护'; }
+  var cf = $('chipFcm');
+  var mcs = num(D.MCS_GMS) || 0;
+  var vpnIn = num(D.VPN_GMS_IN) || 0;
+  var byp = D.VPN_BYP || 'none';
+  if (D.CONF_FCM_UNLOCK !== '1') { cf.textContent = 'FCM 关'; cf.className = 'chip off'; }
+  else if (fcm.indexOf('nosvc') >= 0) { cf.textContent = 'FCM 不支持'; cf.className = 'chip bad'; }
+  else if (fcm.indexOf('probe:fail') >= 0) { cf.textContent = 'FCM 探测失败'; cf.className = 'chip bad'; }
+  else if (fcm.indexOf('ok') === 0 && mcs > 0) { cf.textContent = '推送已连接'; cf.className = 'chip ok'; }
+  else if (fcm.indexOf('ok') === 0 && vpnIn === 1) { cf.textContent = 'MCS未连(查VPN出口)'; cf.className = 'chip warn'; }
+  else if (fcm.indexOf('ok') === 0 && byp === 'true') { cf.textContent = 'MCS被VPN解包'; cf.className = 'chip warn'; }
+  else if (fcm.indexOf('ok') === 0) { cf.textContent = 'MCS未连(查VPN模式)'; cf.className = 'chip warn'; }
+  else if (fcm) { cf.textContent = 'FCM 重试中'; cf.className = 'chip warn'; }
+  else { cf.textContent = 'FCM 等待'; cf.className = 'chip off'; }
+  // panel exec identity -> top chip
+  var ce = $('chipExec');
+  var exu = num(D.EXEC_UID);
+  if (exu === 0) { ce.textContent = 'root ✓'; ce.className = 'chip ok'; }
+  else if (exu === null) { ce.textContent = '身份…'; ce.className = 'chip off'; }
+  else { ce.textContent = '非root(' + exu + ')'; ce.className = 'chip bad'; }
+  // GMS-push VPN monitor: OBSERVE-ONLY indicator + guidance (no active lock).
+  // Driven by the semantic fields VPN_BYP (none/true/false) + VPN_GMS_IN
+  // (is GMS's uid routed through the tunnel) + MCS_GMS (live 5228 sockets).
+  var dV = $('dVlock'), dG = $('dVpnGuide');
+  if (D.CONF_VPN_LOCK !== '1') {
+    dV.innerHTML = '<span style="color:var(--dim)">已关闭</span>';
+    dG.textContent = '开「GMS推送·VPN 监控」查看当前 VPN 能否扛 GMS 推送及如何设置。';
+  } else {
+    var byp = D.VPN_BYP || 'none';
+    var gin = D.VPN_GMS_IN === '1';
+    var mcs = num(D.MCS_GMS) || 0;
+    if (byp === 'none') {
+      dV.innerHTML = '<span style="color:var(--dim)">未连VPN</span>';
+      dG.textContent = '国内用 GMS 推送：连 VPN 并切「全局模式」，让 GMS 流量走隧道。';
+    } else if (byp === 'false') {
+      if (gin) {
+        dV.innerHTML = '<span style="color:var(--ok)">✓ GMS走隧道</span>';
+        dG.textContent = '非可旁路 + GMS 在隧道：推送应正常' + (mcs > 0 ? '（5228 已连）' : '');
+      } else {
+        dV.innerHTML = '<span style="color:var(--warn)">⚠ GMS未入隧道</span>';
+        dG.textContent = '单应用模式：GMS 不在隧道内 → 切「全局模式」让 GMS 走隧道。';
+      }
+    } else { // bypassable=true
+      dV.innerHTML = '<span style="color:var(--warn)">⚠ 可旁路</span>';
+      dG.textContent = 'GMS 可能解包绕开隧道 → 换「非可旁路/全局」VPN 才能让推送走隧道。';
+    }
+  }
   var sv = document.getElementById('selScroll');
   if (sv && document.activeElement !== sv) sv.value = D.CONF_SCROLL_CAP || '0';
   var bp = document.getElementById('btnPause');
@@ -330,21 +377,14 @@ function draw(){
   var W = cv.width, H = cv.height;
   ctx.clearRect(0,0,W,H);
   if (hist.length < 2) return;
-  var series = [
-    {c:'#4da3ff', f:function(p){return p.p;}, max:80},
-    {c:'#39d98a', f:function(p){return p.sc;}, max:15000},
-    {c:'#ffb340', f:function(p){return p.hsc;}, max:15000}
-  ];
+  ctx.beginPath(); ctx.strokeStyle = '#4da3ff'; ctx.lineWidth = 3;
   var n = hist.length, step = W / (HMAX - 1), x0 = W - (n-1)*step;
-  series.forEach(function(s){
-    ctx.beginPath(); ctx.strokeStyle = s.c; ctx.lineWidth = 3;
-    hist.forEach(function(p, i){
-      var v = s.f(p); if (v === null || isNaN(v)) v = 0;
-      var x = x0 + i*step, y = H - 6 - Math.min(1, v/s.max) * (H-16);
-      i ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
-    });
-    ctx.stroke();
+  hist.forEach(function(p, i){
+    var v = p.p; if (v === null || isNaN(v)) v = 0;
+    var x = x0 + i*step, y = H - 6 - Math.min(1, v/80) * (H-16);
+    i ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
   });
+  ctx.stroke();
 }
 
 var tickPending = false;
@@ -356,9 +396,8 @@ async function tick(){
     if (!txt){ document.getElementById('foot').textContent = '读取失败（桥接超时或无 root）'; tickPending = false; return; }
     D = parse(txt);
     render();
-    var volt = num(D.B_VOLT), cur = num(D.B_CUR);
-    var p = (volt !== null && cur !== null) ? Math.abs(volt*cur)/1e12 : 0;
-    hist.push({p:p, sc:num(D.DC_SC_IIN), hsc:num(D.DC_HSC_IIN)});
+    // same power value as the live panel (previously assumed µA and plotted ~0)
+    hist.push({p: calcBattery().pW, sc: num(D.DC_sc_IIN), hsc: num(D.DC_hsc_IIN)});
     if (hist.length > HMAX) hist.shift();
     draw();
     document.getElementById('foot').textContent = '刷新: ' + new Date().toLocaleTimeString() + ' · 每 3 秒自动刷新';
@@ -373,10 +412,11 @@ function start(){
     D = {B_STATUS:'Charging',B_TEMP:'335',B_CAP:'67',B_VOLT:'4123000',B_CUR:'4123000',B_CYCLE:'85',B_FCC:'5321000',B_FCC_DESIGN:'5500000',
          PROTO:'dcp 1 hvc 0 pd 1 lvc 1 sc 1 mainsc 1 auxsc 1 hsc 1 wl_sc 1',
          IIN_LIMIT:'dcp 1000;lvc 4500;sc 12000;hsc 14500;wl_sc 3000;wl_hsc 2500;',
-         CHG_MODE:'hsc 1',ADAP_VOLT:'hsc 8800',ADP_TYPE:'11',ADP_SUPPORT:'0x3F',USB_TYPE:'DCP',PC_USTYPE:'[DCP]',
-         DC_LVC_IIN:'4500',DC_LVC_MAX:'4500',DC_SC_IIN:'12000',DC_SC_MAX:'12000',DC_HSC_IIN:'14500',DC_HSC_MAX:'14500',
-         DC_SC_SUCC:'1',DC_HSC_SUCC:'1',DC_HSC_RES:'62',PC_ICC:'3200000',PC_ICC_MAX:'4000000',PC_AICR:'3000000',
-         PC_CV:'4540000',PC_TICC:'3225000',DAEMON:'1',TPOLICY:'1',USB_CMAX:'1500000',USB_VMAX:'11000000',VER:'demo'};
+         CHG_MODE:'hsc 1',ADAP_VOLT:'hsc 8800',ADP_TYPE:'11',USB_TYPE:'DCP',PC_USTYPE:'[DCP]',
+         DC_lvc_IIN:'4500',DC_lvc_MAX:'4500',DC_sc_IIN:'12000',DC_sc_MAX:'12000',DC_hsc_IIN:'14500',DC_hsc_MAX:'14500',
+         DC_SC_RES:'58',PC_ICC:'3200000',PC_ICC_MAX:'4000000',PC_AICR:'3000000',
+         PC_CV:'4540000',PC_TICC:'3225000',DAEMON:'1',TPOLICY:'1',VER:'demo',
+         CONF_VPN_LOCK:'0',VPN_LOCK_STATE:'idle',FCM_STATE:'ok n=2 probe:ok',MCS_GMS:'0',VPN_BYP:'none',VPN_GMS_IN:'0',EXEC_UID:'0'};
   } else {
     tick();
     timer = setInterval(function(){ if (!document.hidden) tick(); }, 3000);
@@ -390,6 +430,8 @@ function start(){
   $('tgLb').onclick = function(){ setKey('launch_boost', D.CONF_LAUNCH_BOOST === '1' ? '0' : '1', this); };
   $('tgPre').onclick = function(){ setKey('disable_preload', D.CONF_DISABLE_PRELOAD === '1' ? '0' : '1', this); };
   $('tgFcm').onclick = function(){ setKey('fcm_unlock', D.CONF_FCM_UNLOCK === '1' ? '0' : '1', this); };
+  $('tgVlock').onclick = function(){ setKey('vpn_lock', D.CONF_VPN_LOCK === '1' ? '0' : '1', this); };
+  $('tgRb').onclick = function(){ setKey('region_bypass', D.CONF_REGION_BYPASS === '1' ? '0' : '1', this); };
   $('selScroll').onchange = function(){ setKey('scroll_cap', this.value, this); };
   $('btnPause').onclick = async function(){ await ctl(D.PAUSED === '1' ? 'resume' : 'pause'); tick(); };
   $('btnRestart').onclick = async function(){ var b = this; b.textContent = '…'; await ctl('restart'); setTimeout(function(){ b.textContent = '重启'; tick(); }, 1200); };

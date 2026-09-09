@@ -2,11 +2,11 @@
 
 > ⚠️ **AI 生成声明 / AI-generated**: 本模块的逆向分析、代码与文档均由 AI 生成，并在下述设备上完成实测；请自行评估风险后使用。
 
-纯 root 脚本模块（KSU / Magisk 双兼容），不依赖 Xposed。功能：**充电时亮屏解锁皮肤温控限流**（SCP/UFCS 直充满档）+ **app 启动时 CPU 满频率** + **滑动时 CPU 降频省电**（大簇 0.8G）+ **FCM 推送保活解锁**（国行 ROM 谷歌连通性探测换源，防 GMS 被断网/断推送，v1.9）。
+纯 root 脚本模块（KSU / Magisk 双兼容），不依赖 Xposed。功能：**充电电流对抗**（亮屏/熄屏全程对抗充电热限流，SCP/UFCS 直充满档）+ **app 启动时 CPU 满频率** + **滑动时 CPU 降频省电**（大簇 0.8G）+ **FCM 推送保活解锁**（国行 ROM 谷歌连通性探测换源，防 GMS 被断网/断推送，v1.9）。
 
 ## 适用范围（重要）
 
-| | 充电解锁（皮肤温控限流） | app启动满频 / 滑动限频 |
+| | 充电解锁（电流对抗） | app启动满频 / 滑动限频 |
 |---|---|---|
 | ✅ 实测可用 | 荣耀 Magic8 Pro Air（LDY-AN00，天玑 **9500** / MT6379 / MagicOS 10）——全部开发与测试在此设备完成 | 同左 |
 | 🟡 理论可适配（未实测） | 其它荣耀 MagicOS + 天玑(MTK) 机型：需存在荣耀直充节点 `/sys/class/hw_power/charger/direct_charger_*` 与 MT6379 系充电 IC | 其它 MTK perfserv 架构机型：需存在 `/proc/powerhal_cpu_ctrl/perfserv_freq`（powerhal_cpu_ctrl.ko） |
@@ -25,6 +25,21 @@
 **原理**（完整逆向见 `docs/FCM通路逆向笔记.md`）：国行 ROM 的 system_server 内有 `PGGoogleServicePolicy`，周期 HTTP 探测 google.com/accounts.google.com 判定"谷歌连通性"；探测失败会 ①静默拒绝 GMS 的 partial wakelock（熄屏后推送长连接饿死）②PowerGenie 以 UID 防火墙直接断 GMS 网络 ③iAware 在 7 天宽限后撤掉 GMS 应用后台优待。模块用 root 以 uid 1000 调用系统自有接口 `pgservice.setPgConfig(6, urls)` 把探测 URL 换成国内可达地址（默认 baidu/qq），探测恒成功 → 三层全部不触发；另调用 `notifyGoogleKeepAlive` 给 GMS 冻结豁免、维持 `google_service_status=1` 与 iAware 宽限标记。
 
 **耗电**：每 30 分钟 2 次 binder 调用 + 1 次 setprop + 1 次 settings 读（一次性 fork，毫秒级）+ 系统探测本体 1 次 HTTP GET。无常驻进程、无新增轮询。`fcm_unlock=0` 全停；探测 URL 列表只存内存，卸载/关闭后重启即恢复出厂。
+
+### ⚠️ 已知限制：MCS 推送连接会绕过 bypassable VPN（GMS 设计行为，代码级确认）
+
+GMS 26.32 的 MCS 网络选择器（`com.google.android.gms.gcm.connection`，混淆类 chyq/chyn/ciay）在挑选连接网络时（`chyq.k()`）：**若系统 active 网络是 bypassable VPN（`VpnTransportInfo.isBypassable()==true`），会主动解包 VPN、改用其底层物理网络（WiFi/Cell）直连 mtalk.google.com:5228**。此行为无 GMS 内部 flag 可关。
+
+### 🔎 GMS推送·VPN 监控指示器（vpn_lock，v1.9.3，默认关，仅观察不改动）
+
+针对上述问题的**观察与指引**开关。开启后，守护进程在 VPN 隧道（tun 网卡）存在时周期读取当前隧道的 `VpnTransportInfo.bypassable` 状态与 GMS 是否被路由进隧道，面板状态行给出判定与设置指引：
+
+- `未连VPN` / `已关闭`：无活动隧道或开关未开。
+- `✓ GMS走隧道`：隧道不可旁路（bypassable=false）或 GMS uid 在隧道内——MCS 无法解包，推送应正常（5228 已连时额外标注）。
+- `⚠ GMS未入隧道`：VPN 是「单应用模式」且 GMS 不在隧道内 → 把 VPN 切「全局模式」。
+- `⚠ 可旁路`：隧道是 bypassable VPN，GMS 可能解包直连 → 换「非可旁路/全局」VPN 才能让推送走隧道。
+
+**为什么只观察、不下发 VPN 配置**：真机实测，对本 ROM 上由 VPN App 自启的手动隧道调用 `setAlwaysOnPackage(lockdown)` 会先剥离底层路由杀死存活的会话，随后系统 `startAlwaysOnVpn` 拉不起手动隧道并自动回滚——结果恒为「隧道死 + 锁消失」。因此本开关**从不写入任何 VPN 配置**；用户在系统设置里手动配置「始终开启 + 阻止不走 VPN 的连接」仍是有效的替代方案（那是用户自己的持久化配置，模块永不触碰）。
 
 > 模块 id 仍为 `honor_charge_unlock`（配置/数据路径 `/data/adb/honor_charge_unlock.*` 沿用），更名不改 id 以兼容已有安装与配置。
 
@@ -75,6 +90,10 @@ LSPosed 当前无法注入系统组件，本模块为纯 root 脚本方案，不
 
 `interface/iin_limit`（`dcp/lvc/sc/hsc/wl_sc/wl_hsc` 各协议有效输入上限）是**动态推导值** = min(协议设计上限, 当前热限流)。热限流被守护进程钉到满档后，`iin_limit` 自动变为 `sc 12000 hsc 14500`（无线也跟随到 3000/2500），即充电固件自身持有的最大档（`iin_thermal_ichg_control` 值）。适配器握手后固件自动选最高支持档，不再有亮屏降档。上限即该机型设计功率（`msc.power.smart_charge_turbo=66`），超过机型设计档的部分属于硬件域，本模块按约定不处理。`ichg_control_enable`、`set_chargetype_priority` 实测无需改动（写 0 后热限流重算值就是满档值）。
 
+### 海外区域旁路（region_bypass，v1.9.2，默认关）
+
+`post-fs-data` 阶段 `resetprop -n msc.config.optb 392`（非持久，关掉重启即恢复国行身份）。国行身份（optb==156）被 PGGoogleServicePolicy / PowerGenie / iAware 在**进程启动时读一次**，翻转后整条国行谷歌管控链（探测、海外熔断依赖、UID 防火墙、iAware GMS 管控/宽限）全部不布防，FCM 解锁退化为纯保险。副作用：系统自居海外区域，COTA 国行参数包停发（对本模块是减负），**OTA 可能收不到国行推送**（升级前关闭 + 重启）。海外长期使用/海外卡用户适用；国内使用请勿开启。
+
 ## 安装
 
 - KernelSU：管理器刷入 zip，或 `ksud module install honor_charge_unlock-v1.0.0.zip`
@@ -96,6 +115,7 @@ fcm_probe_urls=http://www.baidu.com,http://www.qq.com  # 探测源（需国内�
 fcm_keepalive=1           # GMS 冻结豁免（notifyGoogleKeepAlive）
 fcm_grace_keeper=1        # iAware 宽限标记保持
 fcm_gms_on=1              # google_service_status 保持为 1
+vpn_lock=0                # VPN锁定GMS框架：VPN隧道连上时自动套系统lockdown，断开自动解除
 verbose=0                 # 1=写日志 /data/adb/honor_charge_unlock.log
 ```
 
@@ -125,10 +145,10 @@ v1.5.1 同时修复：pidfile 跨重启残留导致守护进程拒绝自启的 b
 
 KernelSU 管理器 → 模块详情 → **WebUI** 打开实时面板：
 - 实时充电（状态/功率/电流/电压/温度/电量，功率与电流为 canvas 实时曲线）
-- 协议仲裁位图（dcp/hvc/pd/lvc/sc/mainsc/auxsc/hsc/wl_sc 逐项亮灭）
-- 直充三路热限流实时值/满档进度条（lvc 5.5V / sc SCP 11V / hsc UFCS）
+- 充电协议实况（当前协议 / 握手档位 / 物理输入；电流统一在「实时充电」卡展示）
 - 各协议有效档位 `iin_limit` 表、MT6379 充电 IC 参数、适配器协商结果、电池健康与循环次数
-- 数据来源 `dashboard.sh`，每 2 秒刷新；接真实 PD/UFCS 头后适配器与协议字段会实时填充
+- 开关：亮屏解锁 / 熄屏也解锁 / 启动拉满 / 禁用预加载 / FCM 保活 / **VPN锁定GMS框架** / 海外区域旁路 + 滑动限频档位 + 守护暂停/重启
+- 数据来源 `dashboard.sh`，每 2-3 秒刷新；接真实 PD/UFCS 头后适配器与协议字段会实时填充
 
 ## 逆向定论（完整证据链见工作区 docs/荣耀调度解锁逆向笔记.md，未公开）
 

@@ -1,6 +1,6 @@
 {
-  "version": "v1.9.1",
-  "versionCode": 19,
-  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v1.9.1.zip",
-  "changelog": "修复：①协议仲裁位图渲染错乱（协议名与状态被拆成两个标签）②电池电流读数（多源回退+单位自适应+无效读数过滤；普通 USB/5V 头无直充时直充三路显示说明）③FCM 状态显示分层：注入成功/真实探测/推送连接(MCS) 三态区分，MCS 未连=网络墙需全局 VPN，并非解锁失败 ④开机后 5 分钟内每 60s 密集重申探测 URL，消除与 PowerGenie 开机重推的竞态窗口。"
+  "version": "v1.9.4",
+  "versionCode": 22,
+  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v1.9.4.zip",
+  "changelog": "v1.9.2+v1.9.3+v1.9.4 合并发布：①充电解锁开关更名——「充电状态下亮屏进行电流对抗」「熄屏也对抗」（功能不变，名字修正为实际机制）②新增「海外区域旁路」开关（v1.9.2，默认关，海外卡用户专用，重启生效）③新增「GMS推送·VPN 监控指示器」（v1.9.3，默认关，仅观察当前 VPN 能否扛住 GMS MCS 推送并给出设置指引，绝不改动用户 VPN 配置）④移除内部实验性皮肤温控代码（从未发布，对用户无影响）。"
 }

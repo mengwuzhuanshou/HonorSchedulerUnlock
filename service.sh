@@ -76,6 +76,19 @@ fcm_keepalive=1
 fcm_grace_keeper=1
 # keep Settings.Secure google_service_status=1 (google components enabled)
 fcm_gms_on=1
+# optb region bypass (v1.9.2): flip msc.config.optb at post-fs-data so all
+# china-rom google gates arm as oversea (probe/fuse/uid-firewall/iaware all
+# inert). Overseas use only: changes market/COTA/OTA region identity.
+region_bypass=0
+# vpn_lock (v1.9.3): GMS MCS unwraps "bypassable" VPNs and direct-connects
+# mtalk.google.com (GMS design, no internal flag - see docs/FCM通路逆向笔记.md
+# §15). While a VPN tunnel is up, re-point the system's always-on VPN at the
+# connected VPN app with lockdown=1 via the vpn_management binder: lockdown
+# overrides isBypassable to false AND netd blocks the underlying network, so
+# MCS can only use the tunnel. The lock is held only while the tunnel is up
+# (released on drop) and never persisted (settings scrubbed right after
+# apply), so a reboot can never force-start the VPN blind.
+vpn_lock=0
 verbose=0
 EOF
 fi
@@ -104,6 +117,8 @@ conf_add fcm_probe_urls "http://www.baidu.com,http://www.qq.com"
 conf_add fcm_keepalive 1
 conf_add fcm_grace_keeper 1
 conf_add fcm_gms_on 1
+conf_add region_bypass 0
+conf_add vpn_lock 0
 conf_add verbose 0
 # re-source: conf_add only appends to the file, but an upgraded conf means the
 # first source above ran without the new keys -> without this, fcm_* stay
@@ -312,10 +327,14 @@ fcm_assert() {
   echo "$st n=$n" > "$FCM_STF" 2>/dev/null
   log "fcm: probe urls injected ($n) + keepalive/grace/gms asserted"
   # verify the ACTUAL probe verdict (injection success != probe success);
-  # async so the charge-reassert loop never stalls
+  # async so the charge-reassert loop never stalls. Log volume evicts
+  # hundreds of lines per second: anchor the dump at the assert timestamp
+  # (-T); a line-count window (-t 300) had already rotated out by the
+  # time we looked (8s later) on chatty builds.
   {
+    ts=$(date '+%m-%d %H:%M:%S.000')
     sleep 8
-    lc=$(logcat -d -t 300 -s PGGoogleServicePolicy:D 2>/dev/null | tail -20)
+    lc=$(logcat -d -T "$ts" -s PGGoogleServicePolicy:D 2>/dev/null)
     case "$lc" in
       *"connect google success"*) v="probe:ok" ;;
       *"connect google failed"*) v="probe:fail" ;;
@@ -332,7 +351,147 @@ fcm_assert() {
 fcm_last=0
 fcm_boot_boost=5   # dense 60s re-asserts right after daemon start (PowerGenie re-push race)
 
-prev_online=""
+# ---------- VPN lock (v1.9.3) ----------
+# GMS's MCS network selector (chyq.k, GMS 26.32 code-level analysis) checks
+# VpnTransportInfo.isBypassable() on the active network: if the VPN declares
+# allowBypass, it unwraps the VPN and binds the underlying WiFi/Cell to reach
+# mtalk.google.com directly (dead in CN). No GMS flag can disable that, but a
+# SYSTEM lockdown does: "always-on VPN + block connections without VPN"
+# overrides bypassable to false and netd deletes the underlying routes.
+# Applied here as root through the vpn_management binder (IVpnManager):
+#   tx15 setAlwaysOnVpnPackage(user 0, pkg, lockdown, allowlist [])
+#        - returns true/false; a non-VPN package is a harmless no-op
+#        - persists app+lockdown into Settings.Secure (saveAlwaysOnPackage)
+#          -> scrubbed right after, so the lock lives in memory only and a
+#        reboot never force-starts the VPN with its tunnel missing (blackout)
+#   tx16/17 read back the package / lockdown flag (used to verify + to clean
+#        up a lock left over from a daemon kill while the tunnel stayed up)
+# Parcel layout via service(1): i32 userId, s16 pkg, i32 bool (1 byte read,
+# realigned), i32 0 = empty allowlist; "i32 -1" writes a length of -1 which
+# the server reads as pkg=null -> releases always-on AND lockdown.
+VPN_STF=/data/adb/honor_charge_unlock.vpn
+VPN_TX_SET=15
+VPN_TX_LOCK=17
+vpn_tx() { service call vpn_management "$@" 2>/dev/null; }
+vpn_is_locked() { case "$(vpn_tx $VPN_TX_LOCK i32 0)" in *00000001*) return 0 ;; esac; return 1; }
+vpn_apply() {  # $1 = connected VPN package
+  out=$(vpn_tx $VPN_TX_SET i32 0 s16 "$1" i32 1 i32 0)
+  case "$out" in
+    *Result:*00000001*)
+      # the server persisted app+lockdown into Settings.Secure; scrub it so
+      # the lock lives in memory only (a reboot must never force-start the
+      # VPN with no tunnel up - that is a total-connectivity lockdown trap)
+      settings delete secure always_on_vpn_app 2>/dev/null
+      settings delete secure always_on_vpn_lockdown 2>/dev/null
+      return 0 ;;
+  esac
+  return 1
+}
+vpn_release() { vpn_tx $VPN_TX_SET i32 0 i32 -1 i32 0 i32 0 >/dev/null 2>&1; }
+# a lockdown the user configured themselves in system Settings (settings keys
+# non-empty) is THEIR config: never apply-scrub over it, never release it
+vpn_user_cfg() { [ "$(settings get secure always_on_vpn_app 2>/dev/null)" != "null" ]; }
+# The active tunnel's VpnTransportInfo.bypassable flag. The whole point of the
+# lockdown is to stop GMS's MCS (chyq.k) from UNWRAPPING a bypassable VPN to
+# reach mtalk directly. If the tunnel is ALREADY non-bypassable (bypassable=false)
+# there is nothing to lock - MCS cannot unwrap it anyway. Worse, applying the
+# lockdown to a manual VPN (startSession by the app, not a startService-able
+# always-on service) makes system_server's Vpn.setAlwaysOnPackage ->
+# startAlwaysOnVpn fail to bring up a real session, and the system ROLLS BACK the
+# lock after the lockdown route-stripping has already killed the live session
+# (proven on-device: apply -> 10ms "UnderlyingNW Switch to null" -> session
+# UNKNOWN_ERROR -> system auto-releases). So: only apply when bypassable=true.
+vpn_is_bypassable() {
+  case "$(dumpsys vpn_management 2>/dev/null | grep -a 'VpnTransportInfo{' | head -n 1)" in
+    *bypassable=true*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+vpn_lock_watch() {
+  locked=0   # 0=none, 1=ephemeral lock applied by us, 2=user's own config
+  echo idle > "$VPN_STF" 2>/dev/null
+  while :; do
+    if grep -q 'tun[0-9]' /proc/net/dev 2>/dev/null; then
+      if [ "$locked" = "0" ]; then
+        if vpn_user_cfg; then
+          locked=2
+          echo "locked (user-config)" > "$VPN_STF" 2>/dev/null
+          log "vpn_lock: tunnel up under user-configured always-on, adopting"
+        else
+          # one dumpsys per poll; derive both the active package and the
+          # tunnel's bypassable flag from it
+          ds=$(dumpsys vpn_management 2>/dev/null)
+          # [Legacy VPN] is the placeholder when no app VPN is connected; the
+          # server rejects it as always-on anyway
+          pkg=$(printf '%s\n' "$ds" | sed -n 's/^[[:space:]]*Active package name: //p' | head -n 1)
+          case "$pkg" in
+            ""|*"[Legacy VPN]"*) : ;;
+            *)
+              # SAFETY-FIRST (this module is distributed; a user's live VPN must
+              # NEVER be killed by us). We do NOT call setAlwaysOnPackage(lockdown)
+              # on a live manual VpnService: on this ROM it strips the underlying
+              # routes (killing the live session) and system_server's
+              # startAlwaysOnVpn then fails to bring up a manual tunnel and rolls
+              # the lock back - net effect is always "tunnel dead + lock off".
+              # So we only ever OBSERVE and report the tunnel's bypassable state:
+              #   - non-bypassable (bypassable=false): GMS's MCS cannot unwrap it,
+              #     so it is already forced through the tunnel - nothing to lock.
+              #   - bypassable (bypassable=true): we CANNOT safely force it
+              #     non-bypassable from the shell without killing the session, so
+              #     we report it and let the user switch to global mode with a
+              #     non-bypassable VPN (the only combo that both routes GMS through
+              #     the tunnel AND keeps the tunnel alive). Do NOT latch (locked
+              #     stays 0) so a mode/VPN change is picked up on the next poll.
+              if printf '%s\n' "$ds" | grep -a 'VpnTransportInfo{' | head -n 1 | grep -aq 'bypassable=true'; then
+                [ "$(cat "$VPN_STF" 2>/dev/null)" != "skip-bypassable ($pkg)" ] && \
+                  { echo "skip-bypassable ($pkg)" > "$VPN_STF" 2>/dev/null;
+                   log "vpn_lock: tunnel $pkg is BYPASSABLE; not applying lockdown (would kill the live session) - use global mode with a non-bypassable VPN"; }
+              else
+                [ "$(cat "$VPN_STF" 2>/dev/null)" != "skip ($pkg)" ] && \
+                  { echo "skip ($pkg)" > "$VPN_STF" 2>/dev/null;
+                   log "vpn_lock: tunnel $pkg already non-bypassable, no lock needed"; }
+              fi ;;
+          esac
+        fi
+      fi
+    else
+      if [ "$locked" = "1" ]; then
+        # the user may have configured their own always-on while our lock was
+        # up - in that case leave the state (and their settings) alone
+        if vpn_user_cfg; then
+          locked=2
+        else
+          vpn_release
+          echo idle > "$VPN_STF" 2>/dev/null
+          log "vpn_lock: lockdown released (tunnel down)"
+        fi
+      fi
+      [ "$locked" = "0" ] && echo idle > "$VPN_STF" 2>/dev/null
+    fi
+    sleep 5
+  done
+}
+# The GMS-push VPN monitor is an OBSERVE-ONLY indicator, gated by the user
+# toggle (vpn_lock=1) since it's mainly a debugging aid and the 5s poll is not
+# free. It reads the active tunnel's bypassable flag + whether GMS is routed
+# through it and reports to the panel for guidance. It NEVER applies a lockdown
+# (setAlwaysOnPackage would kill a live manual tunnel on this ROM). The stale-
+# lock cleanup runs in BOTH branches in case an older active-lock era left a
+# lock in system_server memory: release ONLY our own ephemeral lock (settings
+# show no configured always-on) and only with the tunnel down.
+if [ "$(settings get secure always_on_vpn_app 2>/dev/null)" = "null" ] && vpn_is_locked && \
+   ! grep -q 'tun[0-9]' /proc/net/dev 2>/dev/null; then
+  vpn_release
+  log "vpn_monitor: released stale lockdown from previous era"
+fi
+if [ "$vpn_lock" = "1" ]; then
+  vpn_lock_watch &
+  log "vpn_monitor: observe-only watcher started"
+else
+  echo off > "$VPN_STF" 2>/dev/null
+fi
+
+prev_charging=0
 cycle=0
 applied=0
 while :; do
@@ -345,13 +504,19 @@ while :; do
     status=${ue#*POWER_SUPPLY_STATUS=}; status=${status%%$'\n'*}
     temp=${ue#*POWER_SUPPLY_TEMP=}; temp=${temp%%$'\n'*}
     online=$(cat /sys/class/power_supply/usb/online 2>/dev/null)
-    if [ "$protocol_poke" = "1" ] && [ "$online" = "1" ] && [ "$prev_online" != "1" ]; then
+    # honor fast-charge heads keep usb/online=0 even while delivering 11V: charge
+    # detection must also accept the battery status, or the unlock NEVER runs on
+    # exactly the adapters it exists for (66W/80W heads)
+    charging=0
+    [ "$online" = "1" ] && charging=1
+    case $status in Charging|Full) charging=1 ;; esac
+    if [ "$protocol_poke" = "1" ] && [ "$charging" = "1" ] && [ "$prev_charging" != "1" ]; then
       poke_protocols; log "protocol poke on plug"
       { sleep 8; dump_arbitration; } &
     fi
-    prev_online=$online
+    prev_charging=$charging
     want=0
-    if [ "$online" = "1" ]; then
+    if [ "$charging" = "1" ]; then
       if [ "$unlock_when_screen_off" = "1" ]; then want=1
       elif [ "$screen_on_unlock" = "1" ] && screen_awake; then want=1; fi
     fi
@@ -392,8 +557,8 @@ while :; do
   cycle=$((cycle + 1))
 
   # power: fight is only meaningful while a charger is connected. Fast poll
-  # (0.3s) when plugged, deep 10s sleep otherwise -> ~zero idle cost.
-  if [ "$online" != "1" ]; then
+  # (0.3s) when charging, deep 10s sleep otherwise -> ~zero idle cost.
+  if [ "$charging" != "1" ]; then
     sleep 10
     continue
   fi
