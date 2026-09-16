@@ -3,6 +3,14 @@ rm -f /data/adb/honor_charge_unlock.pid /data/adb/honor_charge_unlock.paused
 rm -f /data/adb/honor_charge_unlock.conf /data/adb/honor_charge_unlock.log
 rm -f /data/adb/honor_charge_unlock.thermal_mounted
 rm -f /data/adb/honor_charge_unlock.fcm
+rm -f /data/adb/honor_charge_unlock.lsp
+# lsp_fix: if uninstalled inside the masked window (first ~minute after boot),
+# the locale would otherwise stay en-US until the next boot. Restore as best
+# effort (no-op when the restore already ran or the switch was off).
+RP=/data/adb/ksu/bin/resetprop
+[ -x "$RP" ] || RP=resetprop
+"$RP" ro.product.locale.language zh 2>/dev/null
+"$RP" ro.product.locale.region CN 2>/dev/null
 rm -f /data/vendor/thermal/thermal.conf
 # FCM: probe url list lives only in system_server memory; PowerGenie re-pushes
 # the stock google.com list on next boot. Restore immediately as best effort:

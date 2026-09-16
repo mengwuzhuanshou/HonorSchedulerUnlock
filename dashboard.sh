@@ -150,8 +150,12 @@ echo "CONF_DISABLE_PRELOAD=$(cg disable_preload)"
 echo "CONF_FCM_UNLOCK=$(cg fcm_unlock)"
 echo "CONF_REGION_BYPASS=$(cg region_bypass)"
 echo "CONF_VPN_LOCK=$(cg vpn_lock)"
+echo "CONF_LSP_FIX=$(cg lsp_fix)"
 echo "FCM_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.fcm 2>/dev/null)"
 # vpn_lock live state: off / idle (watching for a tunnel) / locked <pkg>
 echo "VPN_LOCK_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.vpn 2>/dev/null)"
+# lsp_fix live state: off / "masked <ts>" (locale masked, awaiting restore) /
+# "restored <ts>" (zh-CN back) - one line per boot from post-fs-data/service
+echo "LSP_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.lsp 2>/dev/null)"
 echo "VER=$(grep '^version=' /data/adb/modules/honor_charge_unlock/module.prop 2>/dev/null | cut -d= -f2)"
 echo "TS=$(date +%s)"

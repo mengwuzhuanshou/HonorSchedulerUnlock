@@ -31,4 +31,22 @@ if [ "$region_bypass" = "1" ]; then
     resetprop -n msc.config.optb 392
   fi
 fi
+
+# lsp_fix (v1.9.5): Honor's PackageParser NPEs inside the lspd daemon when
+# parsing system-scope LSPosed modules (HnPackageUtils.notNeedCustomedPermission
+# -> ActivityManager.isSystemReady -> ActivityManagerInternal is null in
+# non-system_server processes), so system-scope modules get silently dropped
+# from the system_server module list. The NPE is behind a CN-locale-only gate
+# (isChinaVersion): masking the locale to en-US here - pre-zygote, before lspd
+# parses the module list - makes the gate return false and the whole branch is
+# skipped. service.sh restores zh-CN a few seconds after boot_completed, well
+# after the parse window. Verified on LDY-AN00 / MagicOS 10 (ex-honor_lsp_fix
+# module).
+if [ "$lsp_fix" = "1" ]; then
+  RP=/data/adb/ksu/bin/resetprop
+  [ -x "$RP" ] || RP=resetprop
+  "$RP" ro.product.locale.language en
+  "$RP" ro.product.locale.region US
+  echo "$(date) masked" > /data/adb/honor_charge_unlock.lsp 2>/dev/null
+fi
 exit 0

@@ -89,6 +89,14 @@ region_bypass=0
 # (released on drop) and never persisted (settings scrubbed right after
 # apply), so a reboot can never force-start the VPN blind.
 vpn_lock=0
+# lsp_fix (v1.9.5): let system-scope LSPosed modules inject into
+# system_server on Honor MagicOS. The ROM's PackageParser NPEs inside the
+# lspd daemon (ActivityManagerInternal null in non-system_server) when it
+# parses such modules, and the NPE sits behind a CN-locale-only gate.
+# post-fs-data masks ro.product.locale to en-US for the parse window (early
+# boot); this daemon restores zh-CN a few seconds after boot_completed.
+# Needs LSPosed v2.2.0+ (Zygisk Next). Takes effect after a reboot.
+lsp_fix=0
 verbose=0
 EOF
 fi
@@ -119,6 +127,7 @@ conf_add fcm_grace_keeper 1
 conf_add fcm_gms_on 1
 conf_add region_bypass 0
 conf_add vpn_lock 0
+conf_add lsp_fix 0
 conf_add verbose 0
 # re-source: conf_add only appends to the file, but an upgraded conf means the
 # first source above ran without the new keys -> without this, fcm_* stay
@@ -489,6 +498,30 @@ if [ "$vpn_lock" = "1" ]; then
   log "vpn_monitor: observe-only watcher started"
 else
   echo off > "$VPN_STF" 2>/dev/null
+fi
+
+# ---------- LSPosed system-scope fix (v1.9.5) ----------
+# post-fs-data masked ro.product.locale to en-US (pre-zygote) so the lspd
+# daemon's module parse skips the CN-only NPE branch that drops system-scope
+# LSPosed modules from the system_server list. The parse window is over once
+# system_server is up, so restore zh-CN shortly after boot_completed; the
+# user never sees the mask. If the daemon starts after the restore is due
+# (e.g. daemon killed + restarted), the locale is already zh-CN and the
+# restore below is a harmless no-op.
+LSP_STF=/data/adb/honor_charge_unlock.lsp
+if [ "$lsp_fix" = "1" ]; then
+  (
+    until [ "$(getprop sys.boot_completed)" = "1" ]; do sleep 1; done
+    sleep 5
+    RP=/data/adb/ksu/bin/resetprop
+    [ -x "$RP" ] || RP=resetprop
+    "$RP" ro.product.locale.language zh
+    "$RP" ro.product.locale.region CN
+    echo "$(date) restored" > "$LSP_STF" 2>/dev/null
+  ) &
+  log "lsp_fix: locale mask restore scheduled (boot_completed+5s)"
+else
+  echo off > "$LSP_STF" 2>/dev/null
 fi
 
 prev_charging=0

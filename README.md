@@ -94,6 +94,24 @@ LSPosed 当前无法注入系统组件，本模块为纯 root 脚本方案，不
 
 `post-fs-data` 阶段 `resetprop -n msc.config.optb 392`（非持久，关掉重启即恢复国行身份）。国行身份（optb==156）被 PGGoogleServicePolicy / PowerGenie / iAware 在**进程启动时读一次**，翻转后整条国行谷歌管控链（探测、海外熔断依赖、UID 防火墙、iAware GMS 管控/宽限）全部不布防，FCM 解锁退化为纯保险。**本质是模拟海外卡用户**。副作用（系统自居海外区域所致）：COTA 国行参数包停发（对本模块是减负）、**OTA 可能收不到国行推送**（升级前关闭 + 重启）、**通知铃声选不了「无声」**等区域化行为变化——副作用不止已知这些，请自行探索。模拟海外卡/海外长期使用适用；国内使用请勿开启。
 
+### LSPosed 系统作用域修复（lsp_fix，v1.9.5，默认关，重启生效）
+
+**问题**：荣耀魔改的 `PackageParser` 在解析系统作用域（system）LSPosed 模块时调用 `HnPackageUtils.notNeedCustomedPermission()` → `ActivityManager.isSystemReady()`，该调用链在 `lspd` daemon 进程内必然 NPE（`ActivityManagerInternal` 为 null），解析抛 `PackageParserException`，模块被**静默跳过**——不进 system_server 的模块列表。App 作用域模块走另一条代码路径，不受影响。崩溃特征：
+
+```
+W/LSPosedService: failed to parse /data/app/.../base.apk
+Caused by: java.lang.NullPointerException: ...ActivityManagerInternal.isSystemReady()
+  at android.util.HnPackageUtils.notNeedCustomedPermission(HnPackageUtils.java:213)
+```
+
+**修复**：NPE 位于 CN locale 专属分支（`isChinaVersion()` 读 `ro.product.locale.*`，仅 zh/CN 才走）。本开关在 `post-fs-data` 阶段（zygote 之前、lspd 解析模块列表之前）把 locale 临时改为 `en/US`，该分支被完全跳过、解析正常返回；`sys.boot_completed` 后 5 秒自动恢复 `zh/CN`（用户无感）。零监听、零轮询（仅一次 1s 间隔的等待循环直到开机完成）。
+
+- 需要 LSPosed v2.2.0+（Zygisk Next）。开启后**重启**才生效（mask 在 post-fs-data 阶段）。
+- 非荣耀设备/非 CN locale 下该分支本来就返回 false，开关开着也无害。
+- 状态文件 `/data/adb/honor_charge_unlock.lsp`（`masked <ts>` / `restored <ts>` / `off`），面板「系统状态」卡有状态行。
+- 上游 LSPosed 正在迭代新版包解析器，将来可能内置修复——届时可关闭此开关。
+- 机制与原独立模块 honor_lsp_fix（v1.0.1）一致，后者的安装脚本在 KSU v3.x 下有 `os error 2` 坑（`SKIPUNZIP=1` + 平铺文件布局触发安装器清理阶段的 `rmdir -p` 删空 `modules_update` 目录），v1.0.1 已改为标准 `SKIPUNZIP=0` 流 + 防御性重解包。
+
 ## 安装
 
 - KernelSU：管理器刷入 zip，或 `ksud module install honor_charge_unlock-v1.0.0.zip`
@@ -116,6 +134,7 @@ fcm_keepalive=1           # GMS 冻结豁免（notifyGoogleKeepAlive）
 fcm_grace_keeper=1        # iAware 宽限标记保持
 fcm_gms_on=1              # google_service_status 保持为 1
 vpn_lock=0                # VPN锁定GMS框架：VPN隧道连上时自动套系统lockdown，断开自动解除
+lsp_fix=0                 # LSPosed 系统作用域修复：开机早期掩 locale 让 lspd 跳过 NPE 分支（需 LSPosed v2.2.0+，重启生效）
 verbose=0                 # 1=写日志 /data/adb/honor_charge_unlock.log
 ```
 
@@ -147,7 +166,7 @@ KernelSU 管理器 → 模块详情 → **WebUI** 打开实时面板：
 - 实时充电（状态/功率/电流/电压/温度/电量，功率与电流为 canvas 实时曲线）
 - 充电协议实况（当前协议 / 握手档位 / 物理输入；电流统一在「实时充电」卡展示）
 - 各协议有效档位 `iin_limit` 表、MT6379 充电 IC 参数、适配器协商结果、电池健康与循环次数
-- 开关：充电状态下亮屏进行电流对抗 / 熄屏也对抗 / 启动拉满 / 禁用预加载 / FCM 保活 / **GMS推送·VPN 监控指示器** / 海外区域旁路 + 滑动限频档位 + 守护暂停/重启
+- 开关：充电状态下亮屏进行电流对抗 / 熄屏也对抗 / 启动拉满 / 禁用预加载 / FCM 保活 / **GMS推送·VPN 监控指示器** / 海外区域旁路 / **LSPosed 系统作用域修复** + 滑动限频档位 + 守护暂停/重启
 - 数据来源 `dashboard.sh`，每 2-3 秒刷新；接真实 PD/UFCS 头后适配器与协议字段会实时填充
 
 ## 逆向定论（完整证据链见工作区 docs/荣耀调度解锁逆向笔记.md，未公开）
