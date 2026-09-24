@@ -97,6 +97,17 @@ vpn_lock=0
 # boot); this daemon restores zh-CN a few seconds after boot_completed.
 # Needs LSPosed v2.2.0+ (Zygisk Next). Takes effect after a reboot.
 lsp_fix=0
+# volte_fix (v1.9.6): CN ROM ships its telephony APN DB without a type=ims
+# entry for overseas carriers (au/KDDI 44054 here). Without an ims APN the
+# IMS PDN is never established, so on VoLTE-only networks (every JP carrier
+# since the 3G sunset) voice/SMS are dead and the CS domain spins in
+# NOT_REG_SEARCHING forever (constant extra modem signaling = standby drain).
+# Idempotently adds one type=ims row per loaded SIM's operator numeric.
+volte_fix=1
+# after a first-time ims APN insert, cycle airplane mode once so the data
+# stack rebuilds its profiles without a reboot (runs right after boot, and
+# only when a row was actually inserted - never on later checks)
+volte_radio_cycle=1
 verbose=0
 EOF
 fi
@@ -128,6 +139,8 @@ conf_add fcm_gms_on 1
 conf_add region_bypass 0
 conf_add vpn_lock 0
 conf_add lsp_fix 0
+conf_add volte_fix 1
+conf_add volte_radio_cycle 1
 conf_add verbose 0
 # re-source: conf_add only appends to the file, but an upgraded conf means the
 # first source above ran without the new keys -> without this, fcm_* stay
@@ -522,6 +535,99 @@ if [ "$lsp_fix" = "1" ]; then
   log "lsp_fix: locale mask restore scheduled (boot_completed+5s)"
 else
   echo off > "$LSP_STF" 2>/dev/null
+fi
+
+# ---------- VoLTE APN fix (v1.9.6) ----------
+# Reverse-engineering trail: Settings toggle is ON (hn_volte_user_switch_N=1),
+# carrier config says volte available (carrier_volte_available_bool=true) and
+# the framework gate passes (com.android.ims.HwImsManagerInner#
+# isVolteEnabledByPlatform -> device config && carrier config && GBA, all
+# true) - yet MMTEL stays UNAVAILABLE. The actual blocker is data, not code:
+# this ROM's APN DB has no type=ims row for 44054 (au), while the CN carrier
+# rows carry apn=ims/type=ims (which is exactly why VoLTE "works on other
+# cards"). Without it the IMS PDN is never set up; once the row exists the
+# framework builds its built-in "DEFAULT IMS" profile (DNN "ims") and the
+# network answers with P-CSCF + QCI5 - verified live on au. Long-term cost of
+# the missing row: CS domain stuck in NOT_REG_SEARCHING, i.e. the modem keeps
+# re-attempting voice registration that can never succeed on a VoLTE-only
+# network (extra signaling both ways, also seen in the standby drain trace).
+# Watcher: ensures one type=ims row per loaded SIM operator numeric, re-run
+# only when the numeric set changes (SIM swap); idempotent, never touches
+# existing rows.
+VOLTE_STF=/data/adb/honor_charge_unlock.volte
+volte_ensure() {  # $1 = operator numeric (e.g. 44054) -> prints ok|ins|err
+  num=$1
+  mcc=$(printf '%s' "$num" | cut -c 1-3)
+  mnc=$(printf '%s' "$num" | cut -c 4-)
+  [ -n "$mnc" ] || { echo err; return; }
+  got=$(content query --uri content://telephony/carriers --projection _id \
+        --where "numeric='$num' AND type='ims'" 2>/dev/null)
+  case "$got" in *Row:*|*"_id="*) echo ok; return ;; esac
+  if content insert --uri content://telephony/carriers \
+      --bind name:s:'IMS' --bind apn:s:'ims' --bind type:s:'ims' \
+      --bind numeric:s:"$num" --bind mcc:s:"$mcc" --bind mnc:s:"$mnc" \
+      --bind protocol:s:'IPV4V6' --bind roaming_protocol:s:'IPV4V6' \
+      --bind authtype:i:0 --bind carrier_enabled:i:1 >/dev/null 2>&1; then
+    echo ins
+  else
+    echo err
+  fi
+}
+volte_radio_cycle() {
+  cmd connectivity airplane-mode enable  >/dev/null 2>&1
+  sleep 5
+  cmd connectivity airplane-mode disable >/dev/null 2>&1
+}
+volte_watch() {
+  last=X; n=0
+  while :; do
+    nums=$(getprop gsm.sim.operator.numeric 2>/dev/null | tr -d ' ')
+    clean=""
+    OLDIFS=$IFS; IFS=,
+    for p in $nums; do
+      case "$p" in ""|-|*-*) ;; *)
+        case ",$clean," in *",$p,"*) ;; *) clean="${clean:+$clean,}$p" ;; esac ;;
+      esac
+    done
+    IFS=$OLDIFS
+    if [ -z "$clean" ]; then
+      echo wait-sim > "$VOLTE_STF" 2>/dev/null
+      # fast re-poll while boot settles (3 min), then re-check every 5 min
+      n=$((n+1)); [ $n -le 18 ] && sleep 10 || sleep 300
+      continue
+    fi
+    if [ "$clean" != "$last" ]; then
+      last=$clean
+      ins=0; err=0
+      for p in $(printf '%s' "$clean" | tr , ' '); do
+        st=$(volte_ensure "$p")
+        case $st in ok) : ;; ins) ins=$((ins+1)) ;; *) err=$((err+1)) ;; esac
+      done
+      if [ $err -gt 0 ]; then
+        echo "err ($clean)" > "$VOLTE_STF" 2>/dev/null
+        log "volte_fix: content provider error for $clean, retry in 2 min"
+        last=X
+        sleep 120
+        continue
+      fi
+      if [ $ins -gt 0 ] && [ "$volte_radio_cycle" = "1" ]; then
+        echo "radio-cycle ($clean)" > "$VOLTE_STF" 2>/dev/null
+        sleep 3
+        volte_radio_cycle
+      fi
+      echo "ok $clean inserted=$ins" > "$VOLTE_STF" 2>/dev/null
+      log "volte_fix: ims APN ensured for $clean (inserted=$ins, radio_cycle=$([ $ins -gt 0 ] && echo 1 || echo 0))"
+    else
+      echo "ok $clean" > "$VOLTE_STF" 2>/dev/null
+    fi
+    sleep 300
+  done
+}
+if [ "$volte_fix" = "1" ]; then
+  volte_watch &
+  log "volte_fix: ims-APN watcher started"
+else
+  echo off > "$VOLTE_STF" 2>/dev/null
 fi
 
 prev_charging=0

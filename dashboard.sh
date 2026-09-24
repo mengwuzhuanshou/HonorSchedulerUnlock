@@ -151,11 +151,15 @@ echo "CONF_FCM_UNLOCK=$(cg fcm_unlock)"
 echo "CONF_REGION_BYPASS=$(cg region_bypass)"
 echo "CONF_VPN_LOCK=$(cg vpn_lock)"
 echo "CONF_LSP_FIX=$(cg lsp_fix)"
+echo "CONF_VOLTE_FIX=$(cg volte_fix)"
 echo "FCM_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.fcm 2>/dev/null)"
 # vpn_lock live state: off / idle (watching for a tunnel) / locked <pkg>
 echo "VPN_LOCK_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.vpn 2>/dev/null)"
 # lsp_fix live state: off / "masked <ts>" (locale masked, awaiting restore) /
 # "restored <ts>" (zh-CN back) - one line per boot from post-fs-data/service
 echo "LSP_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.lsp 2>/dev/null)"
+# volte_fix live state: off / wait-sim / "ok <numerics> [inserted=N]" /
+# "radio-cycle" / "err" - ims-APN watcher for overseas VoLTE
+echo "VOLTE_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.volte 2>/dev/null)"
 echo "VER=$(grep '^version=' /data/adb/modules/honor_charge_unlock/module.prop 2>/dev/null | cut -d= -f2)"
 echo "TS=$(date +%s)"

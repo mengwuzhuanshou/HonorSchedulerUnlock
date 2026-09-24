@@ -112,6 +112,18 @@ Caused by: java.lang.NullPointerException: ...ActivityManagerInternal.isSystemRe
 - 上游 LSPosed 正在迭代新版包解析器，将来可能内置修复——届时可关闭此开关。
 - 机制与原独立模块 honor_lsp_fix（v1.0.1）一致，后者的安装脚本在 KSU v3.x 下有 `os error 2` 坑（`SKIPUNZIP=1` + 平铺文件布局触发安装器清理阶段的 `rmdir -p` 删空 `modules_update` 目录），v1.0.1 已改为标准 `SKIPUNZIP=0` 流 + 防御性重解包。
 
+### VoLTE 解锁（volte_fix，v1.9.6，默认开）
+
+**问题**：国行 ROM 的 telephony APN 数据库只给 CN 运营商配了 `type=ims` 接入点（联通行：`apn=ims, type=ims`），海外运营商（实测 au/KDDI 44054）一行都没有。没有 ims 接入点 → IMS PDN 永远不建立 → MMTEL 无法注册。在 VoLTE-only 网络（日本三大运营商均已停 2G/3G）上等于**没有电话、没有短信**，且语音域（CS）永久卡在 `NOT_REG_SEARCHING` 反复搜网——既打不了电话，也在持续空耗基带信令（待机耗电来源之一）。
+
+**排查链**（本机实测）：设置里 VoLTE 用户开关是开的（`hn_volte_user_switch_N=1`）、运营商配置 `carrier_volte_available_bool=true`、框架总闸 `HwImsManagerInner.isVolteEnabledByPlatform()`（设备配置 && 运营商配置 && GBA）三条件全过——门不在代码层，在**数据层**：补一行 `type=ims` 后框架立即用内置 `DEFAULT IMS` 档（DNN `ims`）激活 IMS 承载，网络下发 P-CSCF 地址（QCI5），与 CN 卡的 IMS 承载形态完全一致。**所以这不是"设置被屏蔽"，是配置库里缺一行数据**；框架层无任何可 hook 的必要。
+
+**实现**：守护进程内的幂等 watcher——按在插 SIM 的运营商 `operator numeric` 检查 `content://telephony/carriers` 是否已有 `type=ims` 行，缺失才插入（`apn=ims`，IPV4V6），仅当 numeric 集合变化（换卡）时重新检查；首次实际插入后自动切一次飞行模式让数据栈重建 DataProfile（开机阶段执行，用户无感）。不动任何已有行，CN 卡永远零操作。
+
+- 状态文件 `/data/adb/honor_charge_unlock.volte`（`wait-sim` / `ok <numeric列表> [inserted=N]` / `radio-cycle` / `err`），面板「系统状态」卡有状态行。
+- `volte_radio_cycle=1`（默认）控制是否在首次插入后切飞行模式；设 0 则等用户自己重启/切飞行模式生效。
+- 对 CN 卡、已有 ims 行的运营商是零操作 no-op；卸载模块不会删除已插入的行（幂等数据，无害）。
+
 ## 安装
 
 - KernelSU：管理器刷入 zip，或 `ksud module install honor_charge_unlock-v1.0.0.zip`
@@ -135,6 +147,8 @@ fcm_grace_keeper=1        # iAware 宽限标记保持
 fcm_gms_on=1              # google_service_status 保持为 1
 vpn_lock=0                # VPN锁定GMS框架：VPN隧道连上时自动套系统lockdown，断开自动解除
 lsp_fix=0                 # LSPosed 系统作用域修复：开机早期掩 locale 让 lspd 跳过 NPE 分支（需 LSPosed v2.2.0+，重启生效）
+volte_fix=1               # VoLTE 解锁：为在插 SIM 的运营商自动补 type=ims 接入点（海外卡日系网络恢复通话/短信）
+volte_radio_cycle=1       # 首次实际插入 ims 行后自动切一次飞行模式重建数据配置（0=不切，等重启）
 verbose=0                 # 1=写日志 /data/adb/honor_charge_unlock.log
 ```
 

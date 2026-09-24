@@ -95,6 +95,7 @@ canvas{width:100%;height:150px;display:block}
   <div class="row"><span class="n">GMS推送·VPN</span><span class="v" id="dVlock">—</span></div>
   <div class="note" id="dVpnGuide">—</div>
   <div class="row"><span class="n">LSPosed系统作用域修复</span><span class="v" id="dLsp">—</span></div>
+  <div class="row"><span class="n">VoLTE解锁(ims接入点)</span><span class="v" id="dVolte">—</span></div>
 </div>
 
 <div class="card">
@@ -107,6 +108,7 @@ canvas{width:100%;height:150px;display:block}
   <div class="row"><span class="n">GMS推送·VPN 监控指示器(仅调试用)</span><button class="tg" id="tgVlock">…</button></div>
   <div class="row"><span class="n">海外区域旁路(optb, 重启生效)</span><button class="tg" id="tgRb">…</button></div>
   <div class="row"><span class="n">LSPosed系统作用域修复(系统模块注入, 重启生效)</span><button class="tg" id="tgLsp">…</button></div>
+  <div class="row"><span class="n">VoLTE解锁(海外卡自动补ims接入点)</span><button class="tg" id="tgVolte">…</button></div>
   <div class="row"><span class="n">滑动限频（大簇 policy4）</span><select class="sel" id="selScroll">
     <option value="0">关</option>
     <option value="900000">0.9G</option>
@@ -319,6 +321,7 @@ function render(){
   tgSet('tgVlock', D.CONF_VPN_LOCK === '1');
   tgSet('tgRb', D.CONF_REGION_BYPASS === '1');
   tgSet('tgLsp', D.CONF_LSP_FIX === '1');
+  tgSet('tgVolte', D.CONF_VOLTE_FIX === '1');
   // LSPosed system-scope fix: the locale mask lives only in the early-boot
   // parse window; state file shows whether the zh-CN restore has run
   var dl = $('dLsp');
@@ -329,6 +332,19 @@ function render(){
     if (lspSt.indexOf('restored') >= 0) dl.innerHTML = '<span style="color:var(--ok)">✓ 已恢复 (zh-CN)</span>';
     else if (lspSt.indexOf('masked') >= 0) dl.innerHTML = '<span style="color:var(--warn)">已屏蔽（等待恢复）</span>';
     else dl.innerHTML = '<span style="color:var(--dim)">等待守护/重启</span>';
+  }
+  // VoLTE fix state: off / wait-sim / "ok <numerics> [inserted=N]" / radio-cycle / err
+  var dv = $('dVolte');
+  if (D.CONF_VOLTE_FIX !== '1') {
+    dv.innerHTML = '<span style="color:var(--dim)">已关闭</span>';
+  } else {
+    var vs = D.VOLTE_STATE || '';
+    if (vs.indexOf('radio-cycle') >= 0) dv.innerHTML = '<span style="color:var(--warn)">已补ims接入点，刷新无线（飞行模式切换中）</span>';
+    else if (vs.indexOf('inserted=') >= 0) dv.innerHTML = '<span style="color:var(--ok)">✓ 已补 ims 接入点 (' + vs.replace(/^ok /, '') + ')</span>';
+    else if (vs.indexOf('ok ') === 0) dv.innerHTML = '<span style="color:var(--ok)">✓ 接入点正常 (' + vs.replace(/^ok /, '') + ')</span>';
+    else if (vs.indexOf('wait-sim') >= 0) dv.innerHTML = '<span style="color:var(--dim)">等待SIM…</span>';
+    else if (vs.indexOf('err') === 0) dv.innerHTML = '<span style="color:var(--warn)">写入失败，重试中</span>';
+    else dv.innerHTML = '<span style="color:var(--dim)">等待守护/重启</span>';
   }
   // FCM push state -> top chip (compact layering: ROM-side unlock vs network path)
   var fcm = D.FCM_STATE || '';
@@ -430,7 +446,7 @@ function start(){
          DC_lvc_IIN:'4500',DC_lvc_MAX:'4500',DC_sc_IIN:'12000',DC_sc_MAX:'12000',DC_hsc_IIN:'14500',DC_hsc_MAX:'14500',
          DC_SC_RES:'58',PC_ICC:'3200000',PC_ICC_MAX:'4000000',PC_AICR:'3000000',
          PC_CV:'4540000',PC_TICC:'3225000',DAEMON:'1',TPOLICY:'1',VER:'demo',
-         CONF_VPN_LOCK:'0',VPN_LOCK_STATE:'idle',CONF_LSP_FIX:'0',LSP_STATE:'',FCM_STATE:'ok n=2 probe:ok',MCS_GMS:'0',VPN_BYP:'none',VPN_GMS_IN:'0',EXEC_UID:'0'};
+         CONF_VPN_LOCK:'0',VPN_LOCK_STATE:'idle',CONF_LSP_FIX:'0',LSP_STATE:'',CONF_VOLTE_FIX:'0',VOLTE_STATE:'',FCM_STATE:'ok n=2 probe:ok',MCS_GMS:'0',VPN_BYP:'none',VPN_GMS_IN:'0',EXEC_UID:'0'};
   } else {
     tick();
     timer = setInterval(function(){ if (!document.hidden) tick(); }, 3000);
@@ -447,6 +463,7 @@ function start(){
   $('tgVlock').onclick = function(){ setKey('vpn_lock', D.CONF_VPN_LOCK === '1' ? '0' : '1', this); };
   $('tgRb').onclick = function(){ setKey('region_bypass', D.CONF_REGION_BYPASS === '1' ? '0' : '1', this); };
   $('tgLsp').onclick = function(){ setKey('lsp_fix', D.CONF_LSP_FIX === '1' ? '0' : '1', this); };
+  $('tgVolte').onclick = function(){ setKey('volte_fix', D.CONF_VOLTE_FIX === '1' ? '0' : '1', this); };
   $('selScroll').onchange = function(){ setKey('scroll_cap', this.value, this); };
   $('btnPause').onclick = async function(){ await ctl(D.PAUSED === '1' ? 'resume' : 'pause'); tick(); };
   $('btnRestart').onclick = async function(){ var b = this; b.textContent = '…'; await ctl('restart'); setTimeout(function(){ b.textContent = '重启'; tick(); }, 1200); };
