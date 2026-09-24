@@ -174,6 +174,13 @@ mbrain 拿不到皮肤信息 → 开机链卡死 → hang_detect 看门狗强制
 `thermal_conf_codec.py` 与解密配置保留在 magic8proair/_ext/ 仅供研究，**请勿再投递 vtskin-disable 类策略**。
 v1.5.1 同时修复：pidfile 跨重启残留导致守护进程拒绝自启的 bug。
 
+### 面板真实信号读数（v1.9.7，无开关无常驻）
+
+
+QCI 图例：`5`=IMS 承载（VoLTE 语音/信令），`6/8/9`=上网承载。某张卡出现 `QCI:5` 即该卡 IMS 承载已建立（VoLTE 可用）；volte_fix 生效与否可直接看这里。
+
+荣耀状态栏信号格子按自家 `levelHw` 绘制（RSRP -100 也能显示近满格），且不提供 dBm。真正的状态栏改动（LSP hook SystemUI 或重打包资源）必然引入 24h 常驻开销，与本模块"能不加耗电就不加"的原则冲突，因此做成**面板只读卡片**：打开 WebUI 时才执行几条 grep（`telephony.registry`），显示每张卡的运营商/制式/频段/RSRP dBM/SNR/5G 实测值；**关闭面板零开销**（无常驻进程、无轮询、无通知）。
+
 ## WebUI 仪表盘（v1.5.0）
 
 KernelSU 管理器 → 模块详情 → **WebUI** 打开实时面板：

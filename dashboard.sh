@@ -152,6 +152,28 @@ echo "CONF_REGION_BYPASS=$(cg region_bypass)"
 echo "CONF_VPN_LOCK=$(cg vpn_lock)"
 echo "CONF_LSP_FIX=$(cg lsp_fix)"
 echo "CONF_VOLTE_FIX=$(cg volte_fix)"
+# per-SIM real signal readout (v1.9.7): panel-only cost — these few greps run
+# just while the WebUI is polling; closing the panel costs nothing. (The
+# registry dump is ~370KB, over mksh's 128KB single-argument limit, so it goes
+# through a temp file and is never passed as a printf/echo argument.)
+RG=/data/local/tmp/.hcu_reg
+dumpsys telephony.registry > "$RG" 2>/dev/null
+echo "SIG_OPS=$(getprop gsm.operator.alpha 2>/dev/null | tr -d '\r')"
+echo "SIG_TYPES=$(getprop gsm.network.type 2>/dev/null | tr -d '\r')"
+SL=$(grep -oE 'mLte=CellSignalStrengthLte: rssi=[^ ]+ rsrp=[^ ]+ rsrq=[^ ]+ rssnr=[^ ]+' "$RG")
+SB=$(grep -oE 'mCellIdentity=CellIdentityLte:\{[^{]*mBands=\[[0-9]+\]' "$RG" | grep -oE '\[[0-9]+\]')
+SN=$(grep -oE 'mNr=CellSignalStrengthNr:\{[^}]*ssRsrp = [0-9-]+' "$RG" | grep -oE 'ssRsrp = [0-9-]+' | cut -d' ' -f3)
+echo "SIG0_LTE=$(printf '%s\n' "$SL" | sed -n 1p)"
+echo "SIG1_LTE=$(printf '%s\n' "$SL" | sed -n 2p)"
+echo "SIG0_BAND=$(printf '%s\n' "$SB" | sed -n 1p | tr -d '[]')"
+echo "SIG1_BAND=$(printf '%s\n' "$SB" | sed -n 2p | tr -d '[]')"
+echo "SIG0_NR=$(printf '%s\n' "$SN" | sed -n 1p | tr -d ' ')"
+echo "SIG1_NR=$(printf '%s\n' "$SN" | sed -n 2p | tr -d ' ')"
+# QCI per SIM from the bearer states: 5=IMS(VoLTE) signaling, 6/8/9=internet.
+# QCI 5 appearing on a SIM == its IMS bearer is actually established.
+Q=$(grep -oE 'mPreciseDataConnectionStates=\{.*' "$RG")
+echo "SIG0_QCI=$(printf '%s\n' "$Q" | sed -n 1p | grep -oE 'qosClassId=[0-9]+' | cut -d= -f2 | sort -u | tr '\n' '+' | sed 's/+*$//')"
+echo "SIG1_QCI=$(printf '%s\n' "$Q" | sed -n 2p | grep -oE 'qosClassId=[0-9]+' | cut -d= -f2 | sort -u | tr '\n' '+' | sed 's/+*$//')"
 echo "FCM_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.fcm 2>/dev/null)"
 # vpn_lock live state: off / idle (watching for a tunnel) / locked <pkg>
 echo "VPN_LOCK_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.vpn 2>/dev/null)"
