@@ -4,6 +4,12 @@ rm -f /data/adb/honor_charge_unlock.conf /data/adb/honor_charge_unlock.log
 rm -f /data/adb/honor_charge_unlock.thermal_mounted
 rm -f /data/adb/honor_charge_unlock.fcm
 rm -f /data/adb/honor_charge_unlock.lsp
+rm -f /data/adb/honor_charge_unlock.volte
+rm -f /data/adb/honor_charge_unlock.qr
+# qr_fix: drop the bind mount; the override file itself lives in the module
+# tree (qrfix/) and disappears with the module. The stock /odm file is never
+# written, so unmounting restores the stock camera config instantly.
+umount /odm/etc/camera/airaw/facemaskconfig.xml 2>/dev/null
 # lsp_fix: if uninstalled inside the masked window (first ~minute after boot),
 # the locale would otherwise stay en-US until the next boot. Restore as best
 # effort (no-op when the restore already ran or the switch was off).

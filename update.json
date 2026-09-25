@@ -1,6 +1,6 @@
 {
-  "version": "v1.9.4",
-  "versionCode": 22,
-  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v1.9.4.zip",
-  "changelog": "v1.9.2+v1.9.3+v1.9.4 合并发布：①充电解锁开关更名——「充电状态下亮屏进行电流对抗」「熄屏也对抗」（功能不变，名字修正为实际机制）②新增「海外区域旁路」开关（v1.9.2，默认关，模拟海外卡用户，重启生效，有一些副作用，比如通知铃声选不了无声，请自行探索）③新增「GMS推送·VPN 监控指示器」（v1.9.3，默认关，仅观察当前 VPN 能否扛住 GMS MCS 推送并给出设置指引，绝不改动用户 VPN 配置）④移除内部实验性皮肤温控代码（从未发布，对用户无影响）。"
+  "version": "v1.9.8",
+  "versionCode": 26,
+  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v1.9.8.zip",
+  "changelog": "v1.9.8：新增「相机扫码修复」开关（qr_fix，默认开）——bind mount 禁用主摄码场景 QRFUSION 6 帧融合：该融合在对焦拉锯时把拍到的二维码糊成重影、扫码需反复拉远拉近；不改分区不动 dm-verity，关开关即卸载还原，重开相机生效（逆向依据见诊断报告）。VoLTE 开关说明改为通用：自动补 ims 接入点对国内外卡均适用（凡 APN 库缺该卡 ims 行即补）。"
 }

@@ -2,7 +2,7 @@
 
 > ⚠️ **AI 生成声明 / AI-generated**: 本模块的逆向分析、代码与文档均由 AI 生成，并在下述设备上完成实测；请自行评估风险后使用。
 
-纯 root 脚本模块（KSU / Magisk 双兼容），不依赖 Xposed。功能：**充电电流对抗**（亮屏/熄屏全程对抗充电热限流，SCP/UFCS 直充满档）+ **app 启动时 CPU 满频率** + **滑动时 CPU 降频省电**（大簇 0.8G）+ **FCM 推送保活解锁**（国行 ROM 谷歌连通性探测换源，防 GMS 被断网/断推送，v1.9）。
+纯 root 脚本模块（KSU / Magisk 双兼容），不依赖 Xposed。功能：**充电电流对抗**（亮屏/熄屏全程对抗充电热限流，SCP/UFCS 直充满档）+ **app 启动时 CPU 满频率** + **滑动时 CPU 降频省电**（大簇 0.8G）+ **FCM 推送保活解锁**（国行 ROM 谷歌连通性探测换源，防 GMS 被断网/断推送，v1.9）+ **VoLTE 解锁**（自动补 ims 接入点，国内外卡通用，v1.9.6）+ **相机扫码修复**（禁用主摄码场景 QRFUSION 6 帧融合，治拍二维码糊/对焦拉锯，v1.9.8）。
 
 ## 适用范围（重要）
 
@@ -114,7 +114,7 @@ Caused by: java.lang.NullPointerException: ...ActivityManagerInternal.isSystemRe
 
 ### VoLTE 解锁（volte_fix，v1.9.6，默认开）
 
-**问题**：国行 ROM 的 telephony APN 数据库只给 CN 运营商配了 `type=ims` 接入点（联通行：`apn=ims, type=ims`），海外运营商（实测 au/KDDI 44054）一行都没有。没有 ims 接入点 → IMS PDN 永远不建立 → MMTEL 无法注册。在 VoLTE-only 网络（日本三大运营商均已停 2G/3G）上等于**没有电话、没有短信**，且语音域（CS）永久卡在 `NOT_REG_SEARCHING` 反复搜网——既打不了电话，也在持续空耗基带信令（待机耗电来源之一）。
+**问题**：国行 ROM 的 telephony APN 数据库只给 CN 运营商配了 `type=ims` 接入点（联通行：`apn=ims, type=ims`），很多其他运营商一行都没有——海外的（实测 au/KDDI 44054）没有，国内部分被 ROM 屏蔽/漏配的卡也可能没有。没有 ims 接入点 → IMS PDN 永远不建立 → MMTEL 无法注册。在 VoLTE-only 网络（日本三大运营商均已停 2G/3G）上等于**没有电话、没有短信**，且语音域（CS）永久卡在 `NOT_REG_SEARCHING` 反复搜网——既打不了电话，也在持续空耗基带信令（待机耗电来源之一）。**与国别无关：只要在插 SIM 的运营商缺 ims 行就补，国内外卡通用。**
 
 **排查链**（本机实测）：设置里 VoLTE 用户开关是开的（`hn_volte_user_switch_N=1`）、运营商配置 `carrier_volte_available_bool=true`、框架总闸 `HwImsManagerInner.isVolteEnabledByPlatform()`（设备配置 && 运营商配置 && GBA）三条件全过——门不在代码层，在**数据层**：补一行 `type=ims` 后框架立即用内置 `DEFAULT IMS` 档（DNN `ims`）激活 IMS 承载，网络下发 P-CSCF 地址（QCI5），与 CN 卡的 IMS 承载形态完全一致。**所以这不是"设置被屏蔽"，是配置库里缺一行数据**；框架层无任何可 hook 的必要。
 
@@ -123,6 +123,16 @@ Caused by: java.lang.NullPointerException: ...ActivityManagerInternal.isSystemRe
 - 状态文件 `/data/adb/honor_charge_unlock.volte`（`wait-sim` / `ok <numeric列表> [inserted=N]` / `radio-cycle` / `err`），面板「系统状态」卡有状态行。
 - `volte_radio_cycle=1`（默认）控制是否在首次插入后切飞行模式；设 0 则等用户自己重启/切飞行模式生效。
 - 对 CN 卡、已有 ims 行的运营商是零操作 no-op；卸载模块不会删除已插入的行（幂等数据，无害）。
+
+### 相机扫码修复（qr_fix，v1.9.8，默认开）
+
+**问题**：荣耀相机拍二维码很糊、扫码要反复拉远拉近才能识别。逆向定论（完整证据链见 camport 诊断报告）：① 该 ROM 对 QR/文档场景**没有任何专用对焦设定**（MTK 场景表只有标准场景），QR 高频黑白图案让 AF 评分出现多个局部极大值 → 连续对焦在峰间"打猎"（拉锯）；② 主摄 6 帧 RAW 管线（airaw）为码场景启用了 **QRFUSION 多帧融合**（`facemaskconfig.xml` 算法槽 5，仅后置主摄），对焦拉锯期间 6 帧焦平面不一致 → 融合对齐失败 → **重影糊**，比单帧更糊；③ "锐化太重"的观感是失焦图被锐化后的振铃白边，是表象不是根因。
+
+**实现**：模块自带 `qrfix/facemaskconfig.xml`（原版去掉 `<Algo name="5">` QRFUSION 条目，其余逐字节一致），`post-fs-data` 阶段（早于一切相机进程）**bind mount** 覆盖 `/odm/etc/camera/airaw/facemaskconfig.xml`。不改分区、不动 dm-verity、无 AVB 影响；面板切换即时生效（守护重启时挂载/卸载），重开相机加载新配置。
+
+- 关开关 = plain umount，瞬间还原官方原版行为；卸载模块同样自动 umount。
+- 生效判定：面板「系统状态 → 相机扫码修复(QRFUSION)」显示 ✓；`/data/adb/honor_charge_unlock.qr` = `on`。
+- 代价：码场景暗光多帧降噪略降（码拍照退回普通路径）；对焦拉锯本身是系统 AF 行为，拍码时点按对焦等锁定再拍效果最佳。
 
 ## 安装
 
@@ -147,8 +157,9 @@ fcm_grace_keeper=1        # iAware 宽限标记保持
 fcm_gms_on=1              # google_service_status 保持为 1
 vpn_lock=0                # VPN锁定GMS框架：VPN隧道连上时自动套系统lockdown，断开自动解除
 lsp_fix=0                 # LSPosed 系统作用域修复：开机早期掩 locale 让 lspd 跳过 NPE 分支（需 LSPosed v2.2.0+，重启生效）
-volte_fix=1               # VoLTE 解锁：为在插 SIM 的运营商自动补 type=ims 接入点（海外卡日系网络恢复通话/短信）
+volte_fix=1               # VoLTE 解锁：为在插 SIM 的运营商自动补 type=ims 接入点（国内外卡通用，缺行即补）
 volte_radio_cycle=1       # 首次实际插入 ims 行后自动切一次飞行模式重建数据配置（0=不切，等重启）
+qr_fix=1                  # 相机扫码修复：bind mount 禁用主摄码场景 QRFUSION 6 帧融合（拍码糊/对焦拉锯，0=还原）
 verbose=0                 # 1=写日志 /data/adb/honor_charge_unlock.log
 ```
 
@@ -187,7 +198,7 @@ KernelSU 管理器 → 模块详情 → **WebUI** 打开实时面板：
 - 实时充电（状态/功率/电流/电压/温度/电量，功率与电流为 canvas 实时曲线）
 - 充电协议实况（当前协议 / 握手档位 / 物理输入；电流统一在「实时充电」卡展示）
 - 各协议有效档位 `iin_limit` 表、MT6379 充电 IC 参数、适配器协商结果、电池健康与循环次数
-- 开关：充电状态下亮屏进行电流对抗 / 熄屏也对抗 / 启动拉满 / 禁用预加载 / FCM 保活 / **GMS推送·VPN 监控指示器** / 海外区域旁路 / **LSPosed 系统作用域修复** + 滑动限频档位 + 守护暂停/重启
+- 开关：充电状态下亮屏进行电流对抗 / 熄屏也对抗 / 启动拉满 / 禁用预加载 / FCM 保活 / **GMS推送·VPN 监控指示器** / 海外区域旁路 / **LSPosed 系统作用域修复** / **VoLTE解锁** / **相机扫码修复** + 滑动限频档位 + 守护暂停/重启
 - 数据来源 `dashboard.sh`，每 2-3 秒刷新；接真实 PD/UFCS 头后适配器与协议字段会实时填充
 
 ## 逆向定论（完整证据链见工作区 docs/荣耀调度解锁逆向笔记.md，未公开）

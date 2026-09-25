@@ -98,16 +98,28 @@ vpn_lock=0
 # Needs LSPosed v2.2.0+ (Zygisk Next). Takes effect after a reboot.
 lsp_fix=0
 # volte_fix (v1.9.6): CN ROM ships its telephony APN DB without a type=ims
-# entry for overseas carriers (au/KDDI 44054 here). Without an ims APN the
-# IMS PDN is never established, so on VoLTE-only networks (every JP carrier
-# since the 3G sunset) voice/SMS are dead and the CS domain spins in
-# NOT_REG_SEARCHING forever (constant extra modem signaling = standby drain).
-# Idempotently adds one type=ims row per loaded SIM's operator numeric.
+# entry for many carriers (au/KDDI 44054 here; overseas VoLTE-only networks,
+# but also domestic carriers whose ims row the ROM omits - carrier-agnostic).
+# Without an ims APN the IMS PDN is never established, so VoLTE registration
+# is dead and the CS domain spins in NOT_REG_SEARCHING forever (constant extra
+# modem signaling = standby drain). Idempotently adds one type=ims row per
+# loaded SIM's operator numeric - any SIM missing its ims row gets one.
 volte_fix=1
 # after a first-time ims APN insert, cycle airplane mode once so the data
 # stack rebuilds its profiles without a reboot (runs right after boot, and
 # only when a row was actually inserted - never on later checks)
 volte_radio_cycle=1
+# qr_fix (v1.9.8): camera QR-scan fix. This ROM has no dedicated AF scenario
+# for the QR/document scene, and the rear-main 6-frame airaw pipeline runs
+# the QRFUSION multi-frame fusion for it; with AF hunting between focus peaks
+# on the high-contrast QR pattern, the fused burst ghost-blurs captures
+# (repeat zoom-in/out hunting needed before a scan succeeds). The module's
+# qrfix/facemaskconfig.xml (QRFUSION mask entry removed) is bind-mounted over
+# /odm/etc/camera/airaw/facemaskconfig.xml by post-fs-data at boot; the
+# runtime branch below applies/unmounts it when the switch is toggled via the
+# panel (webui_ctl restarts the daemon). No partition write, dm-verity
+# untouched, off = plain umount. Default on: user-verified sharper scans.
+qr_fix=1
 verbose=0
 EOF
 fi
@@ -141,6 +153,7 @@ conf_add vpn_lock 0
 conf_add lsp_fix 0
 conf_add volte_fix 1
 conf_add volte_radio_cycle 1
+conf_add qr_fix 1
 conf_add verbose 0
 # re-source: conf_add only appends to the file, but an upgraded conf means the
 # first source above ran without the new keys -> without this, fcm_* stay
@@ -195,6 +208,26 @@ if [ -f "$PIDF" ]; then
   rm -f "$PIDF"
 fi
 echo $$ > "$PIDF"
+
+# ---------- QR scan fix (v1.9.8): runtime switch handling ----------
+# post-fs-data already applied the mount for the cold-boot case; this branch
+# runs BEFORE the boot wait so a panel toggle (webui_ctl restarts the daemon)
+# takes effect immediately: qr_fix=1 (re)mounts, qr_fix=0 unmounts. Idempotent.
+QR_TGT=/odm/etc/camera/airaw/facemaskconfig.xml
+QR_STF=/data/adb/honor_charge_unlock.qr
+if [ "$qr_fix" = "1" ] && [ -f "$MODDIR/qrfix/facemaskconfig.xml" ] && [ -f "$QR_TGT" ]; then
+  if ! grep -aq "facemaskconfig.xml" /proc/mounts 2>/dev/null; then
+    mount --bind "$MODDIR/qrfix/facemaskconfig.xml" "$QR_TGT" 2>/dev/null
+  fi
+  if grep -aq "facemaskconfig.xml" /proc/mounts 2>/dev/null; then
+    echo "on" > "$QR_STF" 2>/dev/null
+  else
+    echo "mount-failed" > "$QR_STF" 2>/dev/null
+  fi
+else
+  umount "$QR_TGT" 2>/dev/null
+  echo "off" > "$QR_STF" 2>/dev/null
+fi
 
 # wait for boot
 while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 2; done

@@ -1,7 +1,7 @@
 id=honor_charge_unlock
 name=Honor Scheduler Unlock (MTK)
-version=v1.9.7
-versionCode=25
+version=v1.9.8
+versionCode=26
 author=mengwuzhuanshou (AI-generated)
-description=荣耀调度解锁（AI 生成）: 充电电流对抗（亮屏/熄屏全程对抗充电热限流，SCP 66W / UFCS 80W 直充满档）+ app 启动时 CPU 满频率 + 滑动时 CPU 降频省电（0.8G）+ FCM 推送保活解锁（国行谷歌连通性探测换源，防 GMS 断网/断推送，v1.9）+ GMS推送·VPN 监控指示器（观察 VPN 隧道能否扛住 MCS 推送，仅观察不改动，v1.9.3）+ LSPosed 系统作用域修复开关（lsp_fix，开机早期把 locale 临时掩成 en-US 让 lspd 跳过荣耀 PackageParser 的 NPE 分支，system_server 起来后自动恢复 zh-CN，v1.9.5）+ VoLTE 解锁（volte_fix，国行 APN 库缺海外运营商的 type=ims 接入点导致 IMS 不注册、日系 VoLTE-only 网络无通话无短信且语音域空转搜网；自动为在插 SIM 的运营商补一行 ims 接入点，幂等、仅首次插入后切换一次飞行模式，v1.9.6）+ 面板真实信号读数（WebUI 打开时显示每张卡的运营商/制式/频段/RSRP dBm/SNR/5G 真实数值，仅面板轮询瞬间执行几条 grep、关闭面板零开销，无常驻进程不改状态栏，v1.9.7）。适用荣耀 MagicOS + 天玑(MTK) 架构，仅 LDY-AN00（天玑 9500 / MagicOS 10）实测。Config: /data/adb/honor_charge_unlock.conf
+description=荣耀调度解锁（AI 生成）: 充电电流对抗（亮屏/熄屏全程对抗充电热限流，SCP 66W / UFCS 80W 直充满档）+ app 启动时 CPU 满频率 + 滑动时 CPU 降频省电（0.8G）+ FCM 推送保活解锁（国行谷歌连通性探测换源，防 GMS 断网/断推送，v1.9）+ GMS推送·VPN 监控指示器（观察 VPN 隧道能否扛住 MCS 推送，仅观察不改动，v1.9.3）+ LSPosed 系统作用域修复开关（lsp_fix，开机早期把 locale 临时掩成 en-US 让 lspd 跳过荣耀 PackageParser 的 NPE 分支，system_server 起来后自动恢复 zh-CN，v1.9.5）+ VoLTE 解锁（volte_fix，国行 APN 库对部分运营商缺 type=ims 接入点导致 IMS 不注册——海外 VoLTE-only 网络无通话无短信且语音域空转搜网，国内被屏蔽的卡同样适用；自动为在插 SIM 的运营商补一行 ims 接入点，幂等、仅首次插入后切换一次飞行模式，v1.9.6）+ 相机扫码修复（qr_fix，bind mount 禁用主摄码场景 QRFUSION 6 帧融合——该融合在对焦拉锯时把拍码帧糊成重影、扫码要反复拉远拉近；不改分区不动 dm-verity，关开关即卸载还原，重开相机生效，v1.9.8）+ 面板真实信号读数（WebUI 打开时显示每张卡的运营商/制式/频段/RSRP dBm/SNR/5G 真实数值，仅面板轮询瞬间执行几条 grep、关闭面板零开销，无常驻进程不改状态栏，v1.9.7）。适用荣耀 MagicOS + 天玑(MTK) 架构，仅 LDY-AN00（天玑 9500 / MagicOS 10）实测。Config: /data/adb/honor_charge_unlock.conf
 updateJson=https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/update.json

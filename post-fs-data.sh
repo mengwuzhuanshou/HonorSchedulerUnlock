@@ -32,6 +32,34 @@ if [ "$region_bypass" = "1" ]; then
   fi
 fi
 
+# qr_fix (v1.9.8): camera QR-scan fix. The ROM has no dedicated AF scenario
+# for the QR/document capture scene (imgsensor scenario table = stock MTK list
+# only; CAMERA_HW_SM_DOCUMENT_SCENE links the generic PROFESSIONAL state), and
+# the rear-main 6-frame airaw pipeline runs the QRFUSION multi-frame fusion
+# for it (facemaskconfig algo slot 5, CameraPosition 0). With AF hunting
+# between score peaks on the high-contrast QR pattern, the 6-frame burst fuses
+# frames focused at different lens positions -> ghost-blurred captures. The
+# module's qrfix/facemaskconfig.xml is the stock file with the <Algo name="5">
+# entry removed; bind-mounting it over the /odm original (no partition write,
+# dm-verity untouched) makes camerahalserver load the plain path. Applied here
+# (pre-zygote) so the HAL can never read the stock file on cold boot; the
+# source label under /data/adb matches the live-verified path and the switch
+# off path (service.sh / uninstall) is a plain umount.
+QR_TGT=/odm/etc/camera/airaw/facemaskconfig.xml
+QR_STF=/data/adb/honor_charge_unlock.qr
+if [ "$qr_fix" = "1" ] && [ -f "$MODDIR/qrfix/facemaskconfig.xml" ] && [ -f "$QR_TGT" ]; then
+  if grep -aq "facemaskconfig.xml" /proc/mounts 2>/dev/null; then
+    echo "on" > "$QR_STF" 2>/dev/null
+  elif mount --bind "$MODDIR/qrfix/facemaskconfig.xml" "$QR_TGT" 2>/dev/null; then
+    echo "on" > "$QR_STF" 2>/dev/null
+  else
+    echo "mount-failed" > "$QR_STF" 2>/dev/null
+  fi
+else
+  umount "$QR_TGT" 2>/dev/null
+  echo "off" > "$QR_STF" 2>/dev/null
+fi
+
 # lsp_fix (v1.9.5): Honor's PackageParser NPEs inside the lspd daemon when
 # parsing system-scope LSPosed modules (HnPackageUtils.notNeedCustomedPermission
 # -> ActivityManager.isSystemReady -> ActivityManagerInternal is null in

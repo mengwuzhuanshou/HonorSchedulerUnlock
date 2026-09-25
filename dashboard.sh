@@ -152,6 +152,7 @@ echo "CONF_REGION_BYPASS=$(cg region_bypass)"
 echo "CONF_VPN_LOCK=$(cg vpn_lock)"
 echo "CONF_LSP_FIX=$(cg lsp_fix)"
 echo "CONF_VOLTE_FIX=$(cg volte_fix)"
+echo "CONF_QR_FIX=$(cg qr_fix)"
 # per-SIM real signal readout (v1.9.7): panel-only cost — these few greps run
 # just while the WebUI is polling; closing the panel costs nothing. (The
 # registry dump is ~370KB, over mksh's 128KB single-argument limit, so it goes
@@ -181,7 +182,9 @@ echo "VPN_LOCK_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.vpn 2>/dev/null)"
 # "restored <ts>" (zh-CN back) - one line per boot from post-fs-data/service
 echo "LSP_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.lsp 2>/dev/null)"
 # volte_fix live state: off / wait-sim / "ok <numerics> [inserted=N]" /
-# "radio-cycle" / "err" - ims-APN watcher for overseas VoLTE
+# "radio-cycle" / "err" - ims-APN watcher for carriers missing their ims row
 echo "VOLTE_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.volte 2>/dev/null)"
+# qr_fix live state: off / on / mount-failed (QRFUSION bind mount)
+echo "QR_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.qr 2>/dev/null)"
 echo "VER=$(grep '^version=' /data/adb/modules/honor_charge_unlock/module.prop 2>/dev/null | cut -d= -f2)"
 echo "TS=$(date +%s)"

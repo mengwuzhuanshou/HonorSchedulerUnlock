@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="GB2312"?>
+<!--*************************************Note*******************************************
+    algoname:
+            BOKEH = 0,
+            HDRP = 1,
+            HDRPLITE = 2,
+            ELLIP = 3,
+            OPTICALZOOM = 4,
+            QRFUSION = 5,
+            MULTIFLASH = 6,
+            DIFF_FOV_FUSION = 7,
+    CameraPosition:
+            CAMERA_POSITION_INVALID = -1,
+            CAMERA_POSITION_REAR_FIRST = 0,
+            CAMERA_POSITION_FORE_FIRST 1,
+            CAMERA_POSITION_REAR_SECOND 2,
+            CAMERA_POSITION_FORE_SECOND 3,
+            CAMERA_POSITION_REAR_THIRD 4,
+            CAMERA_POSITION_FORE_THIRD 5,
+            CAMERA_POSITION_REAR_FOURTH = 6,
+            CAMERA_POSITION_FORE_FOURTH 7,
+    HdrMode:
+            0 & 1 (just for OPTICALZOOM & DIFF_FOV_FUSION)
+*************************************************************************************-->
+<FaceMaskConfig>
+<Algo name="1">  <!--HDRP-->
+    <CameraPosition Id = "0"/>
+    <CameraPosition Id = "1"/>
+</Algo>
+<Algo name="2">  <!--HDRPLITE-->
+    <CameraPosition Id = "0"/>
+    <CameraPosition Id = "1"/>
+</Algo>
+<Algo name="4">  <!--OPTICALZOOM-->
+    <CameraPosition Id = "0" HdrMode="0"/>
+    <CameraPosition Id = "0" HdrMode="1"/>
+    <CameraPosition Id = "2" HdrMode="0"/>
+    <CameraPosition Id = "2" HdrMode="1"/>
+    <CameraPosition Id = "4" HdrMode="0"/>
+    <CameraPosition Id = "4" HdrMode="1"/>
+</Algo>
+<Algo name="7">  <!--DIFF_FOV_FUSION-->
+    <CameraPosition Id = "0" HdrMode="0"/>
+    <CameraPosition Id = "0" HdrMode="1"/>
+</Algo>
+</FaceMaskConfig>
