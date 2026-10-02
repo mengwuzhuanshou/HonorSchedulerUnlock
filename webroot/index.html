@@ -39,6 +39,8 @@ canvas{width:100%;height:150px;display:block}
 .tg{min-width:64px;padding:4px 14px;border-radius:18px;border:1px solid var(--line);background:var(--off);color:var(--dim);font-size:12px;font-weight:700}
 .tg.on{background:#123b2a;color:var(--ok);border-color:#1d5c40}
 .sel{background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:4px 8px;font-size:12px}
+.num{width:66px;background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:4px 6px;font-size:13px;font-variant-numeric:tabular-nums;text-align:center}
+.num:focus{outline:none;border-color:var(--acc)}
 .btn2{margin-left:6px;padding:4px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card2);color:var(--tx);font-size:12px}
 </style>
 </head>
@@ -96,7 +98,6 @@ canvas{width:100%;height:150px;display:block}
   <div class="note" id="dVpnGuide">—</div>
   <div class="row"><span class="n">LSPosed系统作用域修复</span><span class="v" id="dLsp">—</span></div>
   <div class="row"><span class="n">VoLTE解锁(ims接入点)</span><span class="v" id="dVolte">—</span></div>
-  <div class="row"><span class="n">相机扫码修复(QRFUSION)</span><span class="v" id="dQr">—</span></div>
   <div class="row"><span class="n">真实信号(卡1)</span><span class="v" id="dSig0">—</span></div>
   <div class="row"><span class="n">真实信号(卡2)</span><span class="v" id="dSig1">—</span></div>
 </div>
@@ -113,6 +114,12 @@ canvas{width:100%;height:150px;display:block}
   <div class="row"><span class="n">LSPosed系统作用域修复(系统模块注入, 重启生效)</span><button class="tg" id="tgLsp">…</button></div>
   <div class="row"><span class="n">VoLTE解锁(自动补ims接入点, 国内外卡通用)</span><button class="tg" id="tgVolte">…</button></div>
   <div class="row"><span class="n">相机扫码修复(拍码糊/对焦拉锯, 重开相机生效)</span><button class="tg" id="tgQr">…</button></div>
+  <div class="row"><span class="n">相机曝光抑制 · 主摄测光目标 Target<br><span style="color:var(--dim);font-size:11px">越小整体越暗、高光越不容易溢出。出厂 200 ｜ 推荐 170–195 ｜ 0 = 关闭（回到出厂）｜ 默认 185<br>低于 ~170 暗光/室内人脸会发灰闷；改完重开相机即生效，无需重启</span></span>
+    <span style="display:flex;align-items:center;gap:6px"><input class="num" id="numCam" type="number" min="0" max="250" step="5" value="185"><button class="btn2" id="btnCam">应用</button></span></div>
+  <div class="note" id="dCamNote">—</div>
+  <div class="row"><span class="n">相机锐化抑制 · HDR+ 细节回加降幅<br><span style="color:var(--dim);font-size:11px">越大细节越柔和、涂抹感越少，太大会发糊。出厂 0 ｜ 推荐 20–50 ｜ 0 = 关闭（回到出厂）｜ 默认 35<br>只动后置主摄的多帧细节回加，不动测光；改完重开相机即生效，无需重启</span></span>
+    <span style="display:flex;align-items:center;gap:6px"><input class="num" id="numShp" type="number" min="0" max="90" step="5" value="35"><span class="sub">%</span><button class="btn2" id="btnShp">应用</button></span></div>
+  <div class="note" id="dShpNote">—</div>
   <div class="row"><span class="n">滑动限频（大簇 policy4）</span><select class="sel" id="selScroll">
     <option value="0">关</option>
     <option value="900000">0.9G</option>
@@ -313,9 +320,19 @@ function render(){
   var dcOn = / 1/.test(D.CHG_MODE || '');               // a direct-charge lane active
   // original semantics: this chip reports whether the unlock FIGHT is winning.
   // 被压制 = charging, module should be fighting, but the limit is still capped.
+  // Two states are NOT the module losing and must not read as 被压制:
+  //   - no direct-charge lane at all (plain 5V USB/DCP): the adapter itself sets
+  //     the ceiling, there is nothing to unlock (measured here: ADP_TYPE=0,
+  //     ADP_SUPPORT=0, CHG_MODE lanes 0 - yet sc/hsc nodes still read 12000/14500,
+  //     so an eff>=11000 "解锁生效" would be a lie in the other direction too)
+  //   - battery >=44.0C: the kernel's own temp_para ladder clamps 12000/14500 ->
+  //     6000/1700/0 regardless of what we write (in-kernel, unbeatable)
+  var dcAvail = dcOn || hsOk || num(D.ADP_SUPPORT) > 0;
   if (D.PAUSED === '1') { cu.textContent = '已暂停'; cu.className = 'chip off'; }
   else if (!isCharging) { cu.textContent = '未充电'; cu.className = 'chip off'; }
-  else if (eff >= 11000 || dcOn) { cu.textContent = '解锁生效'; cu.className = 'chip ok'; }
+  else if (!dcAvail) { cu.textContent = '非直充（无高功率通道）'; cu.className = 'chip off'; }
+  else if (temp !== null && temp >= 440) { cu.textContent = '温控限流 ' + (temp / 10).toFixed(0) + '°C'; cu.className = 'chip warn'; }
+  else if (eff >= 11000) { cu.textContent = '解锁生效'; cu.className = 'chip ok'; }
   else { cu.textContent = '被压制'; cu.className = 'chip warn'; }
   tgSet('tgScreen', D.CONF_SCREEN_ON_UNLOCK === '1');
   tgSet('tgOff', D.CONF_UNLOCK_OFF === '1');
@@ -351,15 +368,36 @@ function render(){
     else if (vs.indexOf('err') === 0) dv.innerHTML = '<span style="color:var(--warn)">写入失败，重试中</span>';
     else dv.innerHTML = '<span style="color:var(--dim)">等待守护/重启</span>';
   }
-  // QR scan fix state: off / on / mount-failed
-  var dq = $('dQr');
-  if (D.CONF_QR_FIX !== '1') {
-    dq.innerHTML = '<span style="color:var(--dim)">已关闭</span>';
+  // SmartAE exposure knob: show the value actually live in /odm (bind-mount),
+  // not just what conf says - a failed mount must be visible, not silent.
+  var cn = $('dCamNote'), ci = $('numCam');
+  var ct = num(D.CONF_SMARTAE_TARGET), effT = num(D.EFF_TARGET), cs = D.CAM_STATE || '';
+  if (ct === null) ct = 185;
+  if (document.activeElement !== ci) ci.value = ct;
+  if (ct === 0) {
+    cn.innerHTML = '<span style="color:var(--dim)">已关闭：主摄按出厂 Target 200 测光</span>';
+  } else if (effT === ct) {
+    cn.innerHTML = '<span style="color:var(--ok)">✓ 生效中 Target ' + effT + '（出厂 200，重开相机生效）</span>';
+  } else if (cs.indexOf('mount-failed') >= 0) {
+    cn.innerHTML = '<span style="color:var(--warn)">挂载失败：仍为出厂 ' + (effT === null ? '?' : effT) + '</span>';
   } else {
-    var qs = D.QR_STATE || '';
-    if (qs.indexOf('on') === 0) dq.innerHTML = '<span style="color:var(--ok)">✓ 已禁用码场景多帧融合</span>';
-    else if (qs.indexOf('mount-failed') >= 0) dq.innerHTML = '<span style="color:var(--warn)">挂载失败（此机型无对应配置?）</span>';
-    else dq.innerHTML = '<span style="color:var(--dim)">等待守护/重启</span>';
+    cn.innerHTML = '<span style="color:var(--dim)">等待守护挂载：目标 ' + ct + '，当前 ' + (effT === null ? '?' : effT) + '</span>';
+  }
+  // sharpen_cut knob: same rule - show what the HAL actually reads, and surface
+  // the mounted/target count so a half-mounted set can't pass as success.
+  var sn = $('dShpNote'), si2 = $('numShp');
+  var sc = num(D.CONF_SHARPEN_CUT), effS = num(D.EFF_SHARPEN), ss = D.SHP_STATE || '';
+  if (sc === null) sc = 35;
+  if (document.activeElement !== si2) si2.value = sc;
+  var sm = ss.match(/(\d+)\/(\d+)/);
+  if (sc === 0) {
+    sn.innerHTML = '<span style="color:var(--dim)">已关闭：主摄按出厂细节回加强度出片</span>';
+  } else if (effS === sc) {
+    sn.innerHTML = '<span style="color:var(--ok)">✓ 生效中 降 ' + effS + '%（挂载 ' + (sm ? sm[1] + '/' + sm[2] : '?') + '，重开相机生效）</span>';
+  } else if (ss.indexOf('mount-failed') >= 0) {
+    sn.innerHTML = '<span style="color:var(--warn)">挂载失败：仍为出厂强度' + (sm ? '（' + sm[1] + '/' + sm[2] + '）' : '') + '</span>';
+  } else {
+    sn.innerHTML = '<span style="color:var(--dim)">等待守护挂载：目标 ' + sc + '%，当前 ' + (effS === null ? '出厂' : effS + '%') + '</span>';
   }
   // per-SIM real signal readout (panel-only: values come from dashboard.sh,
   // which just greps telephony.registry while the panel is polling)
@@ -384,19 +422,16 @@ function render(){
     if (qci) s += ' QCI:' + qci;
     el.textContent = s;
   }
-  // FCM push state -> top chip (compact layering: ROM-side unlock vs network path)
+  // FCM push state -> top chip. This chip is ROM-side ONLY (did the probe-list
+  // unlock land?). Whether the 5228 channel then actually comes up depends on a
+  // VPN tunnel, which is debug-only information and lives solely in the
+  // 「GMS推送·VPN」 monitor row below.
   var fcm = D.FCM_STATE || '';
   var cf = $('chipFcm');
-  var mcs = num(D.MCS_GMS) || 0;
-  var vpnIn = num(D.VPN_GMS_IN) || 0;
-  var byp = D.VPN_BYP || 'none';
   if (D.CONF_FCM_UNLOCK !== '1') { cf.textContent = 'FCM 关'; cf.className = 'chip off'; }
   else if (fcm.indexOf('nosvc') >= 0) { cf.textContent = 'FCM 不支持'; cf.className = 'chip bad'; }
   else if (fcm.indexOf('probe:fail') >= 0) { cf.textContent = 'FCM 探测失败'; cf.className = 'chip bad'; }
-  else if (fcm.indexOf('ok') === 0 && mcs > 0) { cf.textContent = '推送已连接'; cf.className = 'chip ok'; }
-  else if (fcm.indexOf('ok') === 0 && vpnIn === 1) { cf.textContent = 'MCS未连(查VPN出口)'; cf.className = 'chip warn'; }
-  else if (fcm.indexOf('ok') === 0 && byp === 'true') { cf.textContent = 'MCS被VPN解包'; cf.className = 'chip warn'; }
-  else if (fcm.indexOf('ok') === 0) { cf.textContent = 'MCS未连(查VPN模式)'; cf.className = 'chip warn'; }
+  else if (fcm.indexOf('ok') === 0) { cf.textContent = 'FCM 解锁生效'; cf.className = 'chip ok'; }
   else if (fcm) { cf.textContent = 'FCM 重试中'; cf.className = 'chip warn'; }
   else { cf.textContent = 'FCM 等待'; cf.className = 'chip off'; }
   // panel exec identity -> top chip
@@ -484,7 +519,7 @@ function start(){
          DC_lvc_IIN:'4500',DC_lvc_MAX:'4500',DC_sc_IIN:'12000',DC_sc_MAX:'12000',DC_hsc_IIN:'14500',DC_hsc_MAX:'14500',
          DC_SC_RES:'58',PC_ICC:'3200000',PC_ICC_MAX:'4000000',PC_AICR:'3000000',
          PC_CV:'4540000',PC_TICC:'3225000',DAEMON:'1',TPOLICY:'1',VER:'demo',
-         CONF_VPN_LOCK:'0',VPN_LOCK_STATE:'idle',CONF_LSP_FIX:'0',LSP_STATE:'',CONF_VOLTE_FIX:'0',VOLTE_STATE:'',CONF_QR_FIX:'0',QR_STATE:'',SIG_OPS:'',SIG_TYPES:'',SIG0_LTE:'',SIG1_LTE:'',SIG0_BAND:'',SIG1_BAND:'',SIG0_NR:'',SIG1_NR:'',FCM_STATE:'ok n=2 probe:ok',MCS_GMS:'0',VPN_BYP:'none',VPN_GMS_IN:'0',EXEC_UID:'0'};
+         CONF_VPN_LOCK:'0',VPN_LOCK_STATE:'idle',CONF_LSP_FIX:'0',LSP_STATE:'',CONF_VOLTE_FIX:'0',VOLTE_STATE:'',CONF_QR_FIX:'0',QR_STATE:'',CONF_SMARTAE_TARGET:'185',CAM_STATE:'on 185',EFF_TARGET:'185',CONF_SHARPEN_CUT:'35',SHP_STATE:'on 35 16/16',EFF_SHARPEN:'35',ADP_SUPPORT:'0',SIG_OPS:'',SIG_TYPES:'',SIG0_LTE:'',SIG1_LTE:'',SIG0_BAND:'',SIG1_BAND:'',SIG0_NR:'',SIG1_NR:'',FCM_STATE:'ok n=2 probe:ok',MCS_GMS:'0',VPN_BYP:'none',VPN_GMS_IN:'0',EXEC_UID:'0'};
   } else {
     tick();
     timer = setInterval(function(){ if (!document.hidden) tick(); }, 3000);
@@ -503,6 +538,26 @@ function start(){
   $('tgLsp').onclick = function(){ setKey('lsp_fix', D.CONF_LSP_FIX === '1' ? '0' : '1', this); };
   $('tgVolte').onclick = function(){ setKey('volte_fix', D.CONF_VOLTE_FIX === '1' ? '0' : '1', this); };
   $('tgQr').onclick = function(){ setKey('qr_fix', D.CONF_QR_FIX === '1' ? '0' : '1', this); };
+  // SmartAE Target: clamp client-side to the same band the bridge enforces,
+  // so a typo can never write a value the daemon would then silently rewrite.
+  var camApply = function(btn){
+    var el = $('numCam'), v = parseInt(el.value, 10);
+    if (isNaN(v)) { $('dCamNote').innerHTML = '<span style="color:var(--warn)">请输入数字（0 或 100–250）</span>'; return; }
+    if (v !== 0) v = v < 100 ? 100 : (v > 250 ? 250 : v);
+    el.value = v;
+    setKey('smartae_target', String(v), btn);
+  };
+  $('btnCam').onclick = function(){ camApply(this); };
+  $('numCam').onkeydown = function(e){ if (e.key === 'Enter' || e.keyCode === 13) camApply($('btnCam')); };
+  var shpApply = function(btn){
+    var el = $('numShp'), v = parseInt(el.value, 10);
+    if (isNaN(v)) { $('dShpNote').innerHTML = '<span style="color:var(--warn)">请输入数字（0 或 1–90）</span>'; return; }
+    if (v < 0) v = 0; if (v > 90) v = 90;
+    el.value = v;
+    setKey('sharpen_cut', String(v), btn);
+  };
+  $('btnShp').onclick = function(){ shpApply(this); };
+  $('numShp').onkeydown = function(e){ if (e.key === 'Enter' || e.keyCode === 13) shpApply($('btnShp')); };
   $('selScroll').onchange = function(){ setKey('scroll_cap', this.value, this); };
   $('btnPause').onclick = async function(){ await ctl(D.PAUSED === '1' ? 'resume' : 'pause'); tick(); };
   $('btnRestart').onclick = async function(){ var b = this; b.textContent = '…'; await ctl('restart'); setTimeout(function(){ b.textContent = '重启'; tick(); }, 1200); };

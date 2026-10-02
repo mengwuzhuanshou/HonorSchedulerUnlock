@@ -153,6 +153,8 @@ echo "CONF_VPN_LOCK=$(cg vpn_lock)"
 echo "CONF_LSP_FIX=$(cg lsp_fix)"
 echo "CONF_VOLTE_FIX=$(cg volte_fix)"
 echo "CONF_QR_FIX=$(cg qr_fix)"
+echo "CONF_SMARTAE_TARGET=$(cg smartae_target)"
+echo "CONF_SHARPEN_CUT=$(cg sharpen_cut)"
 # per-SIM real signal readout (v1.9.7): panel-only cost — these few greps run
 # just while the WebUI is polling; closing the panel costs nothing. (The
 # registry dump is ~370KB, over mksh's 128KB single-argument limit, so it goes
@@ -186,5 +188,15 @@ echo "LSP_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.lsp 2>/dev/null)"
 echo "VOLTE_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.volte 2>/dev/null)"
 # qr_fix live state: off / on / mount-failed (QRFUSION bind mount)
 echo "QR_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.qr 2>/dev/null)"
+# smartae_target live state: off / "on <n>" / "mount-failed <n>" + the Target
+# value the camera HAL actually reads right now (bind-mount aware), so the panel
+# can show what is live rather than what was requested
+echo "CAM_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.cam 2>/dev/null)"
+echo "EFF_TARGET=$(grep -o '<Target>[0-9]*</Target>' /odm/etc/camera/smartae/back/SmartAE.xml 2>/dev/null | head -n 1 | tr -dc '0-9')"
+# sharpen_cut live state: off / "on <cut> <mounted>/<targets>" + the cut the
+# camera HAL actually reads right now (marker grep stops at the file head, so the
+# 250KB tuning file is never scanned whole)
+echo "SHP_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.shp 2>/dev/null)"
+echo "EFF_SHARPEN=$(grep -am1 'shp[0-9]' /odm/etc/camera/hdrplite/caauhjb_m030/hdrp_mc.xml 2>/dev/null | tr -dc '0-9')"
 echo "VER=$(grep '^version=' /data/adb/modules/honor_charge_unlock/module.prop 2>/dev/null | cut -d= -f2)"
 echo "TS=$(date +%s)"

@@ -21,6 +21,14 @@ case "$1" in
     case "$k" in
       screen_on_unlock|unlock_when_screen_off|launch_boost|disable_preload|fcm_unlock|region_bypass|vpn_lock|lsp_fix|volte_fix|qr_fix)
         case "$v" in 0|1) ;; *) echo "ERR bad value"; exit 1 ;; esac ;;
+      smartae_target)
+        # rear-main AE luma target: 0 = off, sane band 100..250 (factory 200)
+        case "$v" in ""|*[!0-9]*) echo "ERR bad value"; exit 1 ;; esac
+        [ "$v" -ne 0 ] && { [ "$v" -lt 100 ] && v=100; [ "$v" -gt 250 ] && v=250; } ;;
+      sharpen_cut)
+        # HDR+ detail add-back cut in percent: 0 = off (factory gains), 1..90
+        case "$v" in ""|*[!0-9]*) echo "ERR bad value"; exit 1 ;; esac
+        [ "$v" -gt 90 ] && v=90 ;;
       scroll_cap)
         case "$v" in 0|700000|800000|900000) ;; *) echo "ERR bad value"; exit 1 ;; esac ;;
       launch_boost_ms)

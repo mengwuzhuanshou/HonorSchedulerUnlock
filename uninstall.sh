@@ -10,6 +10,22 @@ rm -f /data/adb/honor_charge_unlock.qr
 # tree (qrfix/) and disappears with the module. The stock /odm file is never
 # written, so unmounting restores the stock camera config instantly.
 umount /odm/etc/camera/airaw/facemaskconfig.xml 2>/dev/null
+# smartae_target: same mechanism - the generated file lives under /data/adb/camfix
+# (the stock /odm file is never written), so unmounting restores the stock AE
+# target instantly and a reboot leaves nothing behind.
+rm -f /data/adb/honor_charge_unlock.cam
+umount /odm/etc/camera/smartae/back/SmartAE.xml 2>/dev/null
+# sharpen_cut: same mechanism over the rear-primary hdrp_mc.xml set (mounted from
+# generated files under /data/adb/camfix). Unmount first, then drop the
+# generated files - the stock /odm tuning was never written, so the camera is
+# back on factory detail add-back immediately.
+for shp_b in /odm/etc/camera/hdrplite /odm/etc/camera/rawhdr; do
+  for shp_d in $(grep '_hpb_P=' "$shp_b/device.config" 2>/dev/null | sed 's|.*=||' | tr -d '\r'); do
+    umount "${shp_d}hdrp_mc.xml" 2>/dev/null
+  done
+done
+rm -f /data/adb/honor_charge_unlock.shp
+rm -rf /data/adb/camfix
 # lsp_fix: if uninstalled inside the masked window (first ~minute after boot),
 # the locale would otherwise stay en-US until the next boot. Restore as best
 # effort (no-op when the restore already ran or the switch was off).

@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="gb2312"?>
+<AEConfig>
+
+    <Version>10104</Version>
+
+    <AlgoControl>
+        <CameraID>0</CameraID>      <!-- 0:rear(default), 1:front -->
+        <isOpenAwb>1</isOpenAwb>    <!-- Take AWB stats into account -->
+        <isOpenExtraLong>1</isOpenExtraLong>
+        <minISO>100</minISO>
+    </AlgoControl>
+
+    <ExposureTable>
+        <!-- TypeA lower Shutter -->
+        <ExpoTimeTable50HzTypeA>10000  10000  20000  30000  40000  50000  60000  70000</ExpoTimeTable50HzTypeA>
+        <ExpoISOTable50HzTypeA>100    800    1600   3200   5000   6400   12800  12800</ExpoISOTable50HzTypeA>
+
+        <!-- TypeB lower ISO -->
+        <ExpoTimeTable50HzTypeB>10000  20000  30000  50000  100000  160000  200000  250000</ExpoTimeTable50HzTypeB>
+        <ExpoISOTable50HzTypeB>100     400    800    1200   1600    3200    5000    6400</ExpoISOTable50HzTypeB>
+
+        <ExpoTimeTable50HzExtraLong>10000  500000  500000  500000  500000  500000  500000  500000  850000  </ExpoTimeTable50HzExtraLong>
+        <ExpoISOTable50HzExtraLong>100    100     200     400     800     1600    3200    6400    6400    </ExpoISOTable50HzExtraLong>
+
+        <ExpoTimeTable60HzTypeA>8333  8333  16666  24999  33332  41665  49998  58333  83333</ExpoTimeTable60HzTypeA>
+        <ExpoISOTable60HzTypeA>100   800   1600   3200   5000   6400   12800  12800  12800</ExpoISOTable60HzTypeA>
+
+        <ExpoTimeTable60HzTypeB>8333  16666  24999  41665  100000  125000  200000  250000</ExpoTimeTable60HzTypeB>
+        <ExpoISOTable60HzTypeB>100   400    800    1200   1600    3200    5000    6400</ExpoISOTable60HzTypeB>
+
+        <ExpoTimeTable60HzExtraLong>8333  500000  500000  500000  500000  500000  500000  500000  850000</ExpoTimeTable60HzExtraLong>
+        <ExpoISOTable60HzExtraLong>100   100     200     400     800     1600    3200    6400    6400</ExpoISOTable60HzExtraLong>
+    </ExposureTable>
+
+    <AIRawHDRParam>
+        <AlgoEVArray>0</AlgoEVArray>
+        <EVArray>0 -4000 -2000 0 0</EVArray>
+        <Target>200</Target>
+        <LvZone>100  800  5000  12000  25000</LvZone>  <!-- iso * T * 1000 -->
+        <LvDarkRatioThd>35  35  35  40  50</LvDarkRatioThd> <!-- range [0, 1000] -->
+        <LvDarkLumaThd> 2  2  3  2  2</LvDarkLumaThd><!-- range [0, 1024] -->
+        <ShortExpoEV> -4000  -2000</ShortExpoEV>    <!-- RawHDR Short Frame EV lower bound -->
+        <LongExpoEV>4000</LongExpoEV>
+        <ExtraLongExpoEV>3000</ExtraLongExpoEV>
+        <YuvOverRatioWeight>128</YuvOverRatioWeight>  <!-- range[0, 256] -->
+        <YuvRawOverThd>10  100</YuvRawOverThd>  <!-- range[0, 256] -->
+        <EllipOverExpoThd>255</EllipOverExpoThd>
+        <EllipOverExpoThdFace>180</EllipOverExpoThdFace>
+        <LvTh>10  25</LvTh> <!-- [strong, medium]-->
+        <LowLightRatio>100</LowLightRatio>
+        <HighLightEVThd>1000  3000</HighLightEVThd> <!-- log2(expoTime * ISO) -->
+        <HlrType>2</HlrType>
+        <HlrLv>1850</HlrLv>
+        <HlrOverRatioTH>0</HlrOverRatioTH>
+
+        <OverExpoScaleLong>  0    5   10   50  200  400 </OverExpoScaleLong>
+        <UnderExpoScaleLong> 0    3   20   100 400  800 </UnderExpoScaleLong>
+
+        <LongExpoEvTab0> 1000 1000 1000 1000 1000 1000  </LongExpoEvTab0>
+        <LongExpoEvTab1> 1000 1100 1000 1000 1000 1000 </LongExpoEvTab1>
+        <LongExpoEvTab2> 1300 1200 1100 1000 1000 1000 </LongExpoEvTab2>
+        <LongExpoEvTab3> 1600 1500 1400 1300 1100 1000 </LongExpoEvTab3>
+        <LongExpoEvTab4> 2100 2000 1900 1800 1500 1200 </LongExpoEvTab4>
+        <LongExpoEvTab5> 3200 3000 2800 2600 2200 2000 </LongExpoEvTab5>
+
+        <OverExpoScaleShort> 0    2   10   35  100  300 </OverExpoScaleShort>
+        <UnderExpoScaleShort>0    10  50   100 250  600 </UnderExpoScaleShort>
+
+        <ShortExpoEvTab0>1000 1400 1800 2000 2200 2500 </ShortExpoEvTab0>
+        <ShortExpoEvTab1>1200 1600 2000 2200 2400 2700 </ShortExpoEvTab1>
+        <ShortExpoEvTab2>2000 2400 2800 3000 3200 3300 </ShortExpoEvTab2>
+        <ShortExpoEvTab3>2400 2800 3100 3300 3500 3700 </ShortExpoEvTab3>
+        <ShortExpoEvTab4>3800 3900 4000 4000 4000 4000 </ShortExpoEvTab4>
+        <ShortExpoEvTab5>4000 4000 4000 4000 4000 4000 </ShortExpoEvTab5>
+
+        <BandingCheckTag>1</BandingCheckTag>
+        <BandingLuma>20 30</BandingLuma>
+        <BandingRowDepth>5 10</BandingRowDepth>
+        <UseManualAE>2</UseManualAE> <!--1:Manual AE, 2:Manual AE+Long Expo Manual AE -->
+    </AIRawHDRParam>
+
+    <RawHDRParam>
+        <AlgoEVArray>0</AlgoEVArray>
+        <EVArray>0 -4000 -2000 0 0</EVArray>
+        <Target>200</Target>
+        <LvZone>100  800  5000  12000  25000</LvZone>  <!-- iso * T * 1000 -->
+        <LvDarkRatioThd>35  35  35  40  50</LvDarkRatioThd> <!-- range [0, 1000] -->
+        <LvDarkLumaThd> 2  2  3  2  2</LvDarkLumaThd><!-- range [0, 1024] -->
+        <ShortExpoEV> -4000  -2000</ShortExpoEV>    <!-- RawHDR Short Frame EV lower bound -->
+        <LongExpoEV>4000</LongExpoEV>
+        <ExtraLongExpoEV>3000</ExtraLongExpoEV>
+        <YuvOverRatioWeight>128</YuvOverRatioWeight>  <!-- range[0, 256] -->
+        <YuvRawOverThd>10  100</YuvRawOverThd>  <!-- range[0, 256] -->
+        <EllipOverExpoThd>255</EllipOverExpoThd>
+        <EllipOverExpoThdFace>180</EllipOverExpoThdFace>
+        <LvTh>10  25</LvTh> <!-- [strong, medium]-->
+        <LowLightRatio>100</LowLightRatio>
+        <HighLightEVThd>1000  3000</HighLightEVThd> <!-- log2(expoTime * ISO) -->
+        <HlrType>2</HlrType>
+        <HlrLv>1850</HlrLv>
+        <HlrOverRatioTH>0</HlrOverRatioTH>
+
+        <OverExpoScaleLong>  0    5   10   50  200  400 </OverExpoScaleLong>
+        <UnderExpoScaleLong> 0    3   20   100 400  800 </UnderExpoScaleLong>
+
+        <LongExpoEvTab0> 300  200  100  100  100  100  </LongExpoEvTab0>
+        <LongExpoEvTab1> 1000 1100 1000 700  400  200  </LongExpoEvTab1>
+        <LongExpoEvTab2> 1300 1200 1100 900  700  500  </LongExpoEvTab2>
+        <LongExpoEvTab3> 1600 1500 1400 1300 1100 800  </LongExpoEvTab3>
+        <LongExpoEvTab4> 2100 2000 1900 1800 1500 1200 </LongExpoEvTab4>
+        <LongExpoEvTab5> 3200 3000 2800 2600 2200 2000 </LongExpoEvTab5>
+
+        <OverExpoScaleShort> 0    2   10   35  100  300 </OverExpoScaleShort>
+        <UnderExpoScaleShort>0    10  50   100 250  600 </UnderExpoScaleShort>
+
+        <ShortExpoEvTab0>1000 1400 1800 2000 2200 2500 </ShortExpoEvTab0>
+        <ShortExpoEvTab1>1200 1600 2000 2200 2400 2700 </ShortExpoEvTab1>
+        <ShortExpoEvTab2>2000 2400 2800 3000 3200 3300 </ShortExpoEvTab2>
+        <ShortExpoEvTab3>2400 2800 3100 3200 3300 3400 </ShortExpoEvTab3>
+        <ShortExpoEvTab4>3000 3100 3200 3400 3500 3700 </ShortExpoEvTab4>
+        <ShortExpoEvTab5>3300 3300 3350 3400 3500 4000 </ShortExpoEvTab5>
+    </RawHDRParam>
+
+    <YuvHDRParam>
+
+    </YuvHDRParam>
+
+    <EllipParam>
+        <LowLightPixelThd>100</LowLightPixelThd>
+        <OverExpoThd>255</OverExpoThd>
+        <OverExpoThdFace>180</OverExpoThdFace>
+        <LevelLumaRatio>16  20  28  40  57  80  113  160  226  320  453  640</LevelLumaRatio>   <!-- times * 10 -->
+        <ExpoTable>    80000   100000  125000  160000  200000  235000  275000  310000  350000  385000  400000  400000</ExpoTable>
+        <ExpoTableFace>80000   100000  125000  160000  200000  250000  350000  350000  400000  400000  400000  400000</ExpoTableFace>
+        <ShortEVThd>-3000</ShortEVThd>
+        <MaxExpo>850000</MaxExpo>
+        <ShortCoeff>-100</ShortCoeff>
+        <ShortCoeffFace>-200</ShortCoeffFace>
+        <!-- front -->
+        <CurLumaRatio>90  90  90  90  90  90  90  90  60  60  60  60  60  60  60 </CurLumaRatio>
+        <FrontLevelLumaRatio>1  2  4  8  16  32</FrontLevelLumaRatio>
+
+        <FrontISO>12800  12800  12800  25600  40000 40000</FrontISO>
+        <FrontExpo>125000  125000  250000  250000  500000  500000</FrontExpo>
+        <FrontExpoTripod>250000  250000  500000  500000  850000  850000</FrontExpoTripod>
+
+    </EllipParam>
+
+    <HDSRParam>
+        <AlgoEVArray>0</AlgoEVArray>
+        <EVArray>0 -3000 -3000 0 2000</EVArray>
+
+        <ExpoTimeTable50HzTypeA>10000  10000  20000  30000  40000  50000  60000  70000</ExpoTimeTable50HzTypeA>
+        <ExpoISOTable50HzTypeA>100    800    1600   3200   5000   6400   12800  12800</ExpoISOTable50HzTypeA>
+
+        <ExpoTimeTable60HzTypeA>8333  8333  16666  24999  33332  41665  49998  58333  83333</ExpoTimeTable60HzTypeA>
+        <ExpoISOTable60HzTypeA>100   800   1600   3200   5000   6400   12800  12800  12800</ExpoISOTable60HzTypeA>
+
+        <!-- Exclusive for Long frame -->
+        <ExpoTimeTable50HzTypeB>10000  20000  30000  50000  130000  160000  200000  250000  500000</ExpoTimeTable50HzTypeB>
+        <ExpoISOTable50HzTypeB>100    400    800    1200   1600    3200    5000    6400    12800</ExpoISOTable50HzTypeB>
+
+        <ExpoTimeTable60HzTypeB>8333  16666  24999  41665  100000  125000  200000  250000  500000</ExpoTimeTable60HzTypeB>
+        <ExpoISOTable60HzTypeB>100   400    800    1200   1600    3200    5000    6400    12800</ExpoISOTable60HzTypeB>
+
+        <Target>200</Target>
+        <LvZone>100  800  5000  12000  25000</LvZone>  <!-- iso * T * 1000 -->
+        <LvDarkRatioThd>35  35  35  40  50</LvDarkRatioThd> <!-- range [0, 1000] -->
+        <LvDarkLumaThd> 2  2  3  2  2</LvDarkLumaThd><!-- range [0, 1024] -->
+        <ShortExpoEV> -4000  -2000</ShortExpoEV>    <!-- RawHDR Short Frame EV lower bound -->
+        <LongExpoEV>4000</LongExpoEV>
+        <ExtraLongExpoEV>3000</ExtraLongExpoEV>
+        <YuvOverRatioWeight>128</YuvOverRatioWeight>  <!-- range[0, 256] -->
+        <YuvRawOverThd>10  100</YuvRawOverThd>  <!-- range[0, 256] -->
+        <EllipOverExpoThd>255</EllipOverExpoThd>
+        <EllipOverExpoThdFace>180</EllipOverExpoThdFace>
+        <LvTh>10  25</LvTh> <!-- [strong, medium]-->
+        <LowLightRatio>100</LowLightRatio>
+        <HighLightEVThd>1000  3000</HighLightEVThd> <!-- log2(expoTime * ISO) -->
+        <HlrType>2</HlrType>
+        <HlrLv>1850</HlrLv>
+        <HlrOverRatioTH>0</HlrOverRatioTH>
+
+        <OverExpoScaleLong>  0    5   10   50  200  400 </OverExpoScaleLong>
+        <UnderExpoScaleLong> 0    3   20   100 400  800 </UnderExpoScaleLong>
+
+        <LongExpoEvTab0> 300  200  100  100  100  100  </LongExpoEvTab0>
+        <LongExpoEvTab1> 1000 1100 1000 700  400  200  </LongExpoEvTab1>
+        <LongExpoEvTab2> 1300 1200 1100 900  700  500  </LongExpoEvTab2>
+        <LongExpoEvTab3> 1600 1500 1400 1300 1100 800  </LongExpoEvTab3>
+        <LongExpoEvTab4> 2100 2000 1900 1800 1500 1200 </LongExpoEvTab4>
+        <LongExpoEvTab5> 3200 3000 2800 2600 2200 2000 </LongExpoEvTab5>
+
+        <OverExpoScaleShort> 0    2   10   35  100  300 </OverExpoScaleShort>
+        <UnderExpoScaleShort>0    10  50   100 250  600 </UnderExpoScaleShort>
+
+        <ShortExpoEvTab0>1000 1400 1800 2000 2200 2500 </ShortExpoEvTab0>
+        <ShortExpoEvTab1>1200 1600 2000 2200 2400 2700 </ShortExpoEvTab1>
+        <ShortExpoEvTab2>2000 2400 2800 3000 3200 3300 </ShortExpoEvTab2>
+        <ShortExpoEvTab3>2400 2800 3100 3200 3300 3400 </ShortExpoEvTab3>
+        <ShortExpoEvTab4>3000 3100 3200 3400 3500 3700 </ShortExpoEvTab4>
+        <ShortExpoEvTab5>3300 3300 3350 3400 3500 4000 </ShortExpoEvTab5>
+
+        <BandingCheckTag>1</BandingCheckTag>
+        <BandingLuma>20 30</BandingLuma>
+        <BandingRowDepth>5 10</BandingRowDepth>
+        <UseManualAE>2</UseManualAE> <!--1:Manual AE, 2:Manual AE+Long Expo Manual AE -->
+    </HDSRParam>
+</AEConfig>
+<!--fileLength 12065, If add parameters, please adjust the fileLength,2018/02/24-->

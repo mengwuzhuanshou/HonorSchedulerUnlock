@@ -120,6 +120,50 @@ volte_radio_cycle=1
 # panel (webui_ctl restarts the daemon). No partition write, dm-verity
 # untouched, off = plain umount. Default on: user-verified sharper scans.
 qr_fix=1
+# smartae_target (v1.9.9): rear-main AE luma target, the exposure knob the
+# community asks for (reports: 过曝 / 高光压不住). Factory 200 and IDENTICAL in
+# all six smartae variants (/odm/etc/camera/smartae/back{,/aperture,/tele,/wide}
+# + front + others), i.e. the AE is content to average brighter than a
+# high-contrast scene can hold -> sky/window edges clip and nothing pulls them
+# back (HLR is also factory-off: HlrOverRatioTH=0). libSmartAEV2.so logs
+# "aeTarget: %d, curLuma: %d, ratio: %f, targetEV: %f" -> Target is exactly that
+# AE luma target, so lowering it is a monotonic darkening pull-down.
+# Only /odm/etc/camera/smartae/back/SmartAE.xml is touched (rear main); the
+# <Target> tag appears 3x there and nothing else in the file changes.
+# Value: 0 = off (factory behaviour), otherwise written into <Target>.
+#   200 = factory  185 = default (user-accepted round-1 value)
+#   170-195 = sane band; below ~170 indoor/low-light faces go muddy-grey
+#   (the AE then demands more ISO/shutter than the scene has) and above 195
+#   the change stops being visible. Not a brightness slider: it re-centres AE,
+#   so shadows lift back via exposure, the whole frame does not just dim.
+# Delivered as a bind-mount over EROFS /odm like qr_fix: generated at runtime
+# from camfix/SmartAE_back_orig.xml (never modified -> any value reproducible),
+# no partition write, dm-verity untouched, off = plain umount. The camera HAL
+# re-reads tuning on each camera open, so a change lands on reopening camera
+# (no reboot needed). Default 185.
+smartae_target=185
+# sharpen_cut (v2.0.0): community question 2 (锐化太重). The HDR+ engine
+# /odm/lib64/libhdrp.so reads the detail stages out of each module's hdrp_mc.xml -
+# the tag paths are literal strings in that lib: /Config/RAWNR/lanczos_de/{exp,iso}%d,
+# /Config/RAWNR/DetailAddBack/Layer0..2/CurrentLayer/{exp,iso}%d and the
+# CHANGEREFRAWNR mirrors. In that file <Global> has RAWNRBypass=0 while
+# RAW2YUV/sharpen is factory switch=0 and DE/CE/DRE/SkinSmooth are bypassed, i.e.
+# what actually sharpens the rear main is RAWNR's own detail add-back - so that
+# is what this knob turns down. Columns are picked from the in-file field docs:
+# lanczos_de's [0,512] fixed-point gain groups (nondetail/dark+light/Face) and
+# DetailAddBack's weight+scale floats; every threshold/k/count column is left
+# alone. Rows whose token count does not match the schema are emitted verbatim,
+# so a layout change degrades to "no edit" instead of corrupting the tuning.
+# Value: percent those gains are reduced by. 0 = off (factory), 1..90.
+#   35 = default   20-50 = sane band (20 barely visible, 50 already soft)
+#   above ~60 the image goes visibly soft and detail starts reading as smear.
+# Scope: the rear-primary (_hpb_P) module dirs listed by
+# /odm/etc/camera/{hdrplite,rawhdr}/device.config -> 16 hdrp_mc.xml bind-mounts,
+# each generated from its own stock file (they are NOT identical per module), so
+# the variant in use keeps its own calibration numbers. Same stateless
+# umount->transform->bind-mount delivery as smartae_target: no partition write,
+# lands on reopening the camera, off = plain umount. Default 35.
+sharpen_cut=35
 verbose=0
 EOF
 fi
@@ -154,6 +198,8 @@ conf_add lsp_fix 0
 conf_add volte_fix 1
 conf_add volte_radio_cycle 1
 conf_add qr_fix 1
+conf_add smartae_target 185
+conf_add sharpen_cut 35
 conf_add verbose 0
 # re-source: conf_add only appends to the file, but an upgraded conf means the
 # first source above ran without the new keys -> without this, fcm_* stay
@@ -227,6 +273,103 @@ if [ "$qr_fix" = "1" ] && [ -f "$MODDIR/qrfix/facemaskconfig.xml" ] && [ -f "$QR
 else
   umount "$QR_TGT" 2>/dev/null
   echo "off" > "$QR_STF" 2>/dev/null
+fi
+
+# ---------- SmartAE exposure knob (v1.9.9): numeric, bind-mounted ----------
+# Regenerated from the pristine module copy on every daemon start, so the knob
+# is stateless: any value (including 0 = factory) is reachable without reflashing
+# or tracking previous state. The camera HAL re-reads tuning per open, so the
+# value lands when the camera is reopened - no reboot, no daemon-loop polling.
+# Content check (not /proc/mounts) decides success: EROFS binds surface there as
+# the underlying dm-* block device, so path matching is unreliable on this ROM.
+CAM_ORIG=$MODDIR/camfix/SmartAE_back_orig.xml
+CAM_TGT=/odm/etc/camera/smartae/back/SmartAE.xml
+CAM_DIR=/data/adb/camfix
+CAM_GEN=$CAM_DIR/SmartAE_back.xml
+CAM_STF=/data/adb/honor_charge_unlock.cam
+cam_target=${smartae_target:-185}
+case "$cam_target" in ''|*[!0-9]*) cam_target=185 ;; esac
+if [ "$cam_target" -gt 0 ] && [ -f "$CAM_ORIG" ] && [ -f "$CAM_TGT" ]; then
+  mkdir -p "$CAM_DIR" 2>/dev/null
+  sed "s|<Target>[0-9]*</Target>|<Target>$cam_target</Target>|g" "$CAM_ORIG" > "$CAM_GEN.new" 2>/dev/null
+  n=$(grep -c "<Target>$cam_target</Target>" "$CAM_GEN.new" 2>/dev/null)
+  if [ "${n:-0}" -eq 3 ] && [ -s "$CAM_GEN.new" ]; then
+    mv "$CAM_GEN.new" "$CAM_GEN"; chmod 644 "$CAM_GEN" 2>/dev/null
+    if ! grep -q "<Target>$cam_target</Target>" "$CAM_TGT" 2>/dev/null; then
+      umount "$CAM_TGT" 2>/dev/null
+      mount --bind "$CAM_GEN" "$CAM_TGT" 2>/dev/null
+    fi
+  else
+    rm -f "$CAM_GEN.new"
+  fi
+  if grep -q "<Target>$cam_target</Target>" "$CAM_TGT" 2>/dev/null; then
+    echo "on $cam_target" > "$CAM_STF" 2>/dev/null
+  else
+    echo "mount-failed $cam_target" > "$CAM_STF" 2>/dev/null
+  fi
+else
+  umount "$CAM_TGT" 2>/dev/null
+  echo "off" > "$CAM_STF" 2>/dev/null
+fi
+
+# ---------- HDR+ sharpen knob (v2.0.0): numeric, one bind-mount per module ----------
+# Same stateless delivery as smartae_target: umount first so the transform always
+# reads the stock tuning, then bind-mount the generated file. No daemon-loop
+# polling - a panel toggle re-runs this through webui_ctl's daemon restart, and
+# the camera picks the new tuning up on its next open.
+# Success is proven per file by reading the <!--shpN--> marker back through the
+# /odm path (content, not /proc/mounts - see the note above), and by the row
+# count awk reports: only the complete schema (both lanczos_de blocks + all three
+# DetailAddBack layers in both trees) is mounted, so a ROM that renamed or
+# re-laid-out these columns leaves the tuning untouched instead of half-edited.
+SHP_AWK=$MODDIR/camfix/sharpen.awk
+SHP_DIR=/data/adb/camfix
+SHP_STF=/data/adb/honor_charge_unlock.shp
+shp_cut=${sharpen_cut:-35}
+case "$shp_cut" in ''|*[!0-9]*) shp_cut=35 ;; esac
+[ "$shp_cut" -gt 90 ] && shp_cut=90
+shp_list=""
+for shp_b in /odm/etc/camera/hdrplite /odm/etc/camera/rawhdr; do
+  # _hpb_P = rear primary (the module the complaints are about); _hpb_S entries
+  # (ultrawide/tele) are deliberately not touched.
+  for shp_d in $(grep '_hpb_P=' "$shp_b/device.config" 2>/dev/null | sed 's|.*=||' | tr -d '\r'); do
+    [ -f "${shp_d}hdrp_mc.xml" ] && shp_list="$shp_list ${shp_d}hdrp_mc.xml"
+  done
+done
+shp_want=0
+for shp_t in $shp_list; do shp_want=$((shp_want + 1)); done
+if [ "$shp_cut" -gt 0 ] && [ -n "$shp_list" ] && [ -f "$SHP_AWK" ]; then
+  mkdir -p "$SHP_DIR" 2>/dev/null
+  shp_i=0; shp_ok=0
+  for shp_t in $shp_list; do
+    shp_i=$((shp_i + 1))
+    shp_g="$SHP_DIR/hdrp_mc_$shp_i.xml"
+    umount "$shp_t" 2>/dev/null
+    awk -v cut="$shp_cut" -v cnt="$shp_g.cnt" -f "$SHP_AWK" "$shp_t" > "$shp_g.new" 2>/dev/null
+    nr=$(cat "$shp_g.cnt" 2>/dev/null); rm -f "$shp_g.cnt" 2>/dev/null
+    case "$nr" in ''|*[!0-9]*) nr=0 ;; esac
+    if [ -s "$shp_g.new" ] && [ "$nr" -ge 100 ]; then
+      mv "$shp_g.new" "$shp_g"; chmod 644 "$shp_g" 2>/dev/null
+      mount --bind "$shp_g" "$shp_t" 2>/dev/null
+    else
+      rm -f "$shp_g.new"
+    fi
+    grep -aq "shp$shp_cut" "$shp_t" 2>/dev/null && shp_ok=$((shp_ok + 1))
+  done
+  # prune generated files from a previous, larger target set
+  for shp_old in "$SHP_DIR"/hdrp_mc_*.xml; do
+    [ -f "$shp_old" ] || continue
+    shp_k=$(basename "$shp_old" | tr -dc '0-9')
+    [ "${shp_k:-0}" -gt "$shp_i" ] && rm -f "$shp_old"
+  done
+  if [ "$shp_ok" -gt 0 ]; then
+    echo "on $shp_cut $shp_ok/$shp_want" > "$SHP_STF" 2>/dev/null
+  else
+    echo "mount-failed $shp_cut 0/$shp_want" > "$SHP_STF" 2>/dev/null
+  fi
+else
+  for shp_t in $shp_list; do umount "$shp_t" 2>/dev/null; done
+  echo "off" > "$SHP_STF" 2>/dev/null
 fi
 
 # wait for boot

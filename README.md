@@ -2,7 +2,7 @@
 
 > ⚠️ **AI 生成声明 / AI-generated**: 本模块的逆向分析、代码与文档均由 AI 生成，并在下述设备上完成实测；请自行评估风险后使用。
 
-纯 root 脚本模块（KSU / Magisk 双兼容），不依赖 Xposed。功能：**充电电流对抗**（亮屏/熄屏全程对抗充电热限流，SCP/UFCS 直充满档）+ **app 启动时 CPU 满频率** + **滑动时 CPU 降频省电**（大簇 0.8G）+ **FCM 推送保活解锁**（国行 ROM 谷歌连通性探测换源，防 GMS 被断网/断推送，v1.9）+ **VoLTE 解锁**（自动补 ims 接入点，国内外卡通用，v1.9.6）+ **相机扫码修复**（禁用主摄码场景 QRFUSION 6 帧融合，治拍二维码糊/对焦拉锯，v1.9.8）。
+纯 root 脚本模块（KSU / Magisk 双兼容），不依赖 Xposed。功能：**充电电流对抗**（亮屏/熄屏全程对抗充电热限流，SCP/UFCS 直充满档）+ **app 启动时 CPU 满频率** + **滑动时 CPU 降频省电**（大簇 0.8G）+ **FCM 推送保活解锁**（国行 ROM 谷歌连通性探测换源，防 GMS 被断网/断推送，v1.9）+ **VoLTE 解锁**（自动补 ims 接入点，国内外卡通用，v1.9.6）+ **相机扫码修复**（禁用主摄码场景 QRFUSION 6 帧融合，治拍二维码糊/对焦拉锯，v1.9.8）+ **相机曝光抑制 Target 可调**（主摄 SmartAE 测光目标 200→默认 185，治过曝/高光溢出，面板输入数值，重开相机生效，v1.9.9）+ **相机锐化抑制**（sharpen_cut，把主摄 HDR+ RAWNR 的细节回加与 lanczos 增强增益按百分比下调，治「锐化太重」，出厂 0 / 默认 35 / 推荐 20–50，逐模块重建后 bind mount，重开相机生效，v2.0.0）。
 
 ## 适用范围（重要）
 
@@ -126,13 +126,37 @@ Caused by: java.lang.NullPointerException: ...ActivityManagerInternal.isSystemRe
 
 ### 相机扫码修复（qr_fix，v1.9.8，默认开）
 
-**问题**：荣耀相机拍二维码很糊、扫码要反复拉远拉近才能识别。逆向定论（完整证据链见 camport 诊断报告）：① 该 ROM 对 QR/文档场景**没有任何专用对焦设定**（MTK 场景表只有标准场景），QR 高频黑白图案让 AF 评分出现多个局部极大值 → 连续对焦在峰间"打猎"（拉锯）；② 主摄 6 帧 RAW 管线（airaw）为码场景启用了 **QRFUSION 多帧融合**（`facemaskconfig.xml` 算法槽 5，仅后置主摄），对焦拉锯期间 6 帧焦平面不一致 → 融合对齐失败 → **重影糊**，比单帧更糊；③ "锐化太重"的观感是失焦图被锐化后的振铃白边，是表象不是根因。
+**问题**：荣耀相机拍二维码很糊、扫码要反复拉远拉近才能识别。逆向定论：① 该 ROM 对 QR/文档场景**没有任何专用对焦设定**（MTK 场景表只有标准场景），QR 高频黑白图案让 AF 评分出现多个局部极大值 → 连续对焦在峰间"打猎"（拉锯）；② 主摄 6 帧 RAW 管线（airaw）为码场景启用了 **QRFUSION 多帧融合**（`facemaskconfig.xml` 算法槽 5，仅后置主摄），对焦拉锯期间 6 帧焦平面不一致 → 融合对齐失败 → **重影糊**，比单帧更糊；③ "锐化太重"的观感是失焦图被锐化后的振铃白边，是表象不是根因。
 
 **实现**：模块自带 `qrfix/facemaskconfig.xml`（原版去掉 `<Algo name="5">` QRFUSION 条目，其余逐字节一致），`post-fs-data` 阶段（早于一切相机进程）**bind mount** 覆盖 `/odm/etc/camera/airaw/facemaskconfig.xml`。不改分区、不动 dm-verity、无 AVB 影响；面板切换即时生效（守护重启时挂载/卸载），重开相机加载新配置。
 
 - 关开关 = plain umount，瞬间还原官方原版行为；卸载模块同样自动 umount。
-- 生效判定：面板「系统状态 → 相机扫码修复(QRFUSION)」显示 ✓；`/data/adb/honor_charge_unlock.qr` = `on`。
+- 生效判定：`/data/adb/honor_charge_unlock.qr` = `on`（v1.9.9 起面板不再单列状态行，开关本身即状态）。
 - 代价：码场景暗光多帧降噪略降（码拍照退回普通路径）；对焦拉锯本身是系统 AF 行为，拍码时点按对焦等锁定再拍效果最佳。
+
+### 相机曝光抑制 · 主摄测光目标 Target（smartae_target，v1.9.9，默认 185）
+
+**问题**：社区反馈「过曝」+「高光压不住」。逆向定论：① 主摄 SmartAE 的 AE 亮度目标 `<Target>` 出厂 = **200**，且六个 variant（back / back·aperture / back·tele / back·wide / front / others）**取值完全相同**，即 AE 控制器满足于比高对比场景所能承受的更亮的平均亮度 → 天空、窗边直接溢出；② 负责往回拉的高光恢复 **HLR 出厂即关**（`HlrOverRatioTH=0`，六个 variant 皆然），所以溢出后没有任何回调；③ `libSmartAEV2.so` 的日志串 `aeTarget: %d, curLuma: %d, ratio: %f, targetEV: %f` 证实 `Target` 就是这个 AE 亮度目标——调低它是单调的压暗拉回，不是整体降亮度（阴影靠曝光量自己回来）。
+
+**实现**：面板数值输入框（0 / 100–250）。守护进程每次启动时用模块自带的**出厂原文** `camfix/SmartAE_back_orig.xml` 重建目标文件（只改 `<Target>`，主摄那份共 3 处、其余字节一模一样），再 **bind mount** 覆盖 `/odm/etc/camera/smartae/back/SmartAE.xml`。因为基准永远出厂、生成物即时重建，所以任何数值都可复现，不存在状态残留；不改分区、不动 dm-verity。相机 HAL 每次打开相机重读 tuning → **重开相机即生效，无需重启**。
+
+- 取值建议：**200 = 出厂**，**185 = 本模块默认**（实机 A/B：同场景对比下 200 明显更糟），**170–195 = 合理区间**；低于 ~170 室内/暗光人脸会发灰闷（AE 会索要场景给不起的 ISO/快门）。0 = 关闭（plain umount 回出厂）。
+- 细调交给使用者：面板输入框后面直接标了区间与代价，改完重开相机试两张即可，无需 root 命令、无需重启。
+- 生效判定：`/data/adb/honor_charge_unlock.cam` = `on <当前值>`；面板「开关」卡那行直接显示 **相机 HAL 此刻真正读到的 Target**（挂载失败会显式告警，不静默）。
+- 只做后置主摄。前置/长焦/超广出厂同值，若需要同样处理，扩 `CAM_TGT` 路径即可（每个镜头一份）。
+- 与「高光恢复」是两件事：本轮只调 AE 目标；若把 Target 压下去后正常曝光下高光仍溢出，下一轮再动 `HlrType/HlrLv/HlrOverRatioTH/HighLightEVThd`（同文件明文）。
+
+### 相机锐化抑制 · HDR+ 细节回加降幅（sharpen_cut，v2.0.0，默认 35）
+
+**问题**：社区反馈「锐化太重」。逆向定论：HDR+ 引擎 `/odm/lib64/libhdrp.so` 里字面存着这些取值路径 —— `/Config/RAWNR/lanczos_de/{exp,iso}%d`、`/Config/RAWNR/DetailAddBack/Layer0..2/CurrentLayer/{exp,iso}%d` 以及 `CHANGEREFRAWNR` 的两份镜像，即它逐模块解析 `hdrp_mc.xml`；而同一份 `<Global>` 里 `RAW2YUV/sharpen` 出厂 `switch=0`、`DE/CE/DRE/SkinSmooth` 全部 bypass、只有 `RAWNRBypass=0` —— 也就是说真正在给主摄加锐的不是那些名字响亮的增强块，而是 **RAWNR 自己的细节回加 + lanczos 增强**。降这两处的增益就是治这个观感的正确抓手（`sharpen_cfg.xml` 的 `filter_data` 是纯位置化数组、字段无语义名，风险高，故不用它）。
+
+**实现**：面板数值输入框（0–90，单位%）。守护进程按 `/odm/etc/camera/{hdrplite,rawhdr}/device.config` 里标 `_hpb_P`（后置主摄）的 8 个模块目录，各取 `hdrp_mc.xml` **先 umount 读出厂原文**、用模块内 `camfix/sharpen.awk` 生成降增益版本，再 bind mount 回去 —— 16 份文件（两棵树各 8 份，它们的标定数值彼此不同，所以必须逐份生成而非自带副本）。同样不改分区、不动 dm-verity，重开相机即生效。
+
+- 改的是**哪些列**（依文件内自带的字段说明，按行内 token 序号取）：`lanczos_de` 取三个 `[0,512]` 定点增益组（nondetail 5–7、dark/light 10–11、Face 16–18），`DetailAddBack` 取 `weight_for_non_detail_region` 的 2 weight + 1 scale（13–15）与 `weight_for_detail_region` 的 3 weight + 1 scale（18–21）。所有阈值列、kernel 阶数、计数列一律不动。
+- **行内 token 数不等于 47/18 就整行原样输出**，且只有整份文件命中完整 schema（≥100 行）才挂载 —— ROM 若改了列布局，结果是「不动」而不是「改坏」。
+- 取值建议：**0 = 出厂**，**35 = 默认**，**20–50 = 合理区间**（20 基本看不出来，50 已明显偏软）；超过约 60 细节开始糊成涂抹感，面板封顶 90 但不建议常驻。0 = 关闭（16 份全部 plain umount 回出厂）。
+- 生效判定：`/data/adb/honor_charge_unlock.shp` = `on <降幅> <已挂载>/<目标数>`；生成文件里带 `<!--shpN-->` 注释标记，面板那行 grep 这个标记显示 **相机 HAL 此刻真正读到的降幅**，并核对挂载份数（只挂上一半不会伪装成成功）。
+- 社区四问：过曝 + 高光（`smartae_target`）、锐化（`sharpen_cut`）已落地；紫边（横向色差 CAC）在 `/vendor/etc/imgsensor/mt6993/*_ldy.bin` 加密 tuning 内，AP 侧无明文抓手，只能靠降锐化 + 压高光间接缓解（振铃白边与色边都会跟着减）。
 
 ## 安装
 
@@ -160,6 +184,8 @@ lsp_fix=0                 # LSPosed 系统作用域修复：开机早期掩 loca
 volte_fix=1               # VoLTE 解锁：为在插 SIM 的运营商自动补 type=ims 接入点（国内外卡通用，缺行即补）
 volte_radio_cycle=1       # 首次实际插入 ims 行后自动切一次飞行模式重建数据配置（0=不切，等重启）
 qr_fix=1                  # 相机扫码修复：bind mount 禁用主摄码场景 QRFUSION 6 帧融合（拍码糊/对焦拉锯，0=还原）
+smartae_target=185        # 相机曝光抑制：主摄 SmartAE 测光目标（出厂 200，推荐 170-195，0=关；重开相机生效）
+sharpen_cut=35          # 相机锐化抑制：HDR+ 细节回加降幅%（出厂 0，推荐 20-50，封顶 90；重开相机生效）
 verbose=0                 # 1=写日志 /data/adb/honor_charge_unlock.log
 ```
 
