@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Continue'
+﻿$ErrorActionPreference = 'Continue'
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -26,7 +26,9 @@ if ($bytes.Length -ge 2 -and $bytes[1] -eq 0) { $pat = [Text.Encoding]::Unicode.
 $pat = $pat.Trim()
 Write-Output ('PAT_LEN=' + $pat.Length)
 $ErrorActionPreference = 'Continue'
-Set-Location D:\test\honor_scheduler_unlock
+$root = Split-Path -Parent $PSScriptRoot
+$dist = Join-Path $root 'dist'
+Set-Location $root
 git add -A
 git commit -m 'v1.8.6: add update.json + dist zip (KSU update detection)' 2>&1 | ForEach-Object { "$_" }
 git push origin main 2>&1 | ForEach-Object { "$_" }
@@ -36,7 +38,7 @@ $json = $bodyObj | ConvertTo-Json
 try {
   $rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/mengwuzhuanshou/HonorSchedulerUnlock/releases' -Method Post -Headers $headers -Body ([System.Text.Encoding]::UTF8.GetBytes($json)) -ContentType 'application/json; charset=utf-8'
   Write-Output ('RELEASE_CREATED=' + $rel.id)
-  $asset = Invoke-RestMethod -Uri ('https://uploads.github.com/repos/mengwuzhuanshou/HonorSchedulerUnlock/releases/' + $rel.id + '/assets?name=HonorSchedulerUnlock-v1.8.6.zip') -Method Post -Headers $headers -ContentType 'application/zip' -InFile 'D:\test\honor_scheduler_unlock\dist\HonorSchedulerUnlock-v1.8.6.zip'
+  $asset = Invoke-RestMethod -Uri ('https://uploads.github.com/repos/mengwuzhuanshou/HonorSchedulerUnlock/releases/' + $rel.id + '/assets?name=HonorSchedulerUnlock-v1.8.6.zip') -Method Post -Headers $headers -ContentType 'application/zip' -InFile "$dist\HonorSchedulerUnlock-v1.8.6.zip"
   Write-Output ('ASSET_UPLOADED=' + $asset.name)
 } catch {
   $em = "$($_.ErrorDetails.Message)"

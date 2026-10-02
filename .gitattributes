@@ -1,0 +1,17 @@
+# Device-side scripts must stay LF: they run as #!/system/bin/sh on device and a
+# CR after the shebang is a "bad interpreter" (module silently does nothing).
+*.sh            text eol=lf
+*.prop          text eol=lf
+update.json     text eol=lf
+webroot/*       text eol=lf
+META-INF/com/google/android/update-binary text eol=lf
+
+# Shipped camera tuning overrides are byte-for-byte copies of the stock /odm
+# files (which are CRLF on this ROM). Git must keep them exactly as pulled -
+# normalizing line endings would silently change every line of a file we claim
+# differs from stock only in one tag value.
+camfix/*        -text
+qrfix/*         -text
+
+# Docs are read in Windows editors - platform default is fine there.
+*.md            text
