@@ -154,7 +154,10 @@ echo "CONF_LSP_FIX=$(cg lsp_fix)"
 echo "CONF_VOLTE_FIX=$(cg volte_fix)"
 echo "CONF_QR_FIX=$(cg qr_fix)"
 echo "CONF_SMARTAE_TARGET=$(cg smartae_target)"
-echo "CONF_SHARPEN_CUT=$(cg sharpen_cut)"
+echo "CONF_SHARPEN_LVL=$(cg sharpen_level)"
+echo "CONF_BEAUTY_CUT=$(cg beauty_cut)"
+echo "CONF_UW_EXP_MS=$(cg uw_exp_ms)"
+echo "CONF_UW_ISO_GAIN=$(cg uw_iso_gain)"
 # per-SIM real signal readout (v1.9.7): panel-only cost — these few greps run
 # just while the WebUI is polling; closing the panel costs nothing. (The
 # registry dump is ~370KB, over mksh's 128KB single-argument limit, so it goes
@@ -193,10 +196,42 @@ echo "QR_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.qr 2>/dev/null)"
 # can show what is live rather than what was requested
 echo "CAM_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.cam 2>/dev/null)"
 echo "EFF_TARGET=$(grep -o '<Target>[0-9]*</Target>' /odm/etc/camera/smartae/back/SmartAE.xml 2>/dev/null | head -n 1 | tr -dc '0-9')"
-# sharpen_cut live state: off / "on <cut> <mounted>/<targets>" + the cut the
-# camera HAL actually reads right now (marker grep stops at the file head, so the
-# 250KB tuning file is never scanned whole)
+# sharpen_level live state: off / "on <tier>" / "unsupported|patch-failed|
+# mount-failed <tier>" + proof that /odm now resolves to the generated DB. An
+# inode compare is bind-mount aware and cheap enough for the panel poll; hashing
+# the 12MB DB on every poll is not.
+SHP_LVL=$(cg sharpen_level)
+SHP_GEN=/data/adb/camfix/ISP_param_lv$SHP_LVL.db
 echo "SHP_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.shp 2>/dev/null)"
-echo "EFF_SHARPEN=$(grep -am1 'shp[0-9]' /odm/etc/camera/hdrplite/caauhjb_m030/hdrp_mc.xml 2>/dev/null | tr -dc '0-9')"
+SHP_TGT=/odm/bin/crossbuild/DataSet/SQLiteModule/db/tuning_DB/calvrns_m010_ldy/ISP_param.db
+if [ -f "$SHP_GEN" ] && [ "$(stat -c %i "$SHP_TGT" 2>/dev/null)" = "$(stat -c %i "$SHP_GEN" 2>/dev/null)" ]; then
+  echo "EFF_SHARPEN=$SHP_LVL"
+else
+  echo "EFF_SHARPEN="
+fi
+# beauty_cut live state: off / "on <cut>" / "mount-failed <cut>" + the cut the
+# front beauty engine actually reads right now (marker sits on the file head, so
+# grep -m1 never scans the whole tuning file)
+echo "BTY_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.bty 2>/dev/null)"
+echo "EFF_BEAUTY=$(grep -am1 -o 'bty[0-9]*' /odm/etc/camera/hwbeauty/front/hwbeauty_params.xml 2>/dev/null | tr -dc '0-9')"
+# uw_exp_ms/uw_iso_gain live state: off / "on exp=.. iso=.. fps=.." /
+# "mount-failed ..." / "unsupported ...", plus what the camera HAL actually
+# reads right now: the AE pline 311 last-anchor eMax (us) and isoMax, and the
+# metastore target-fps immediate (stock 5 / patched 2 / patched 1). Values are
+# read through the /odm + /vendor paths, so bind mounts are reflected.
+UW_DB=/odm/bin/crossbuild/DataSet/SQLiteModule/db/ae/ParameterDB_ae.db
+UW_SO=/vendor/lib64/mt6993/libmtkcam_metastore.so
+echo "UW_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.uwa 2>/dev/null)"
+UW_E=$(od -An -tu4 -j 4265560 -N4 "$UW_DB" 2>/dev/null | tr -d ' \n')
+case "$UW_E" in ''|*[!0-9]*) ;; *) echo "EFF_UW_EXP=$((UW_E / 1000))" ;; esac
+UW_I=$(od -An -tu4 -j 4265568 -N4 "$UW_DB" 2>/dev/null | tr -d ' \n')
+case "$UW_I" in ''|*[!0-9]*) ;; *) echo "EFF_UW_ISO=$((UW_I * 100 / 72000))" ;; esac
+UW_W=$(od -An -tx4 -j 1335656 -N4 "$UW_SO" 2>/dev/null | tr -d ' \n')
+case "$UW_W" in
+  528000a8|528000A8) echo "EFF_UW_FPS=5" ;;
+  52800048) echo "EFF_UW_FPS=2" ;;
+  52800028) echo "EFF_UW_FPS=1" ;;
+  *) echo "EFF_UW_FPS=0" ;;
+esac
 echo "VER=$(grep '^version=' /data/adb/modules/honor_charge_unlock/module.prop 2>/dev/null | cut -d= -f2)"
 echo "TS=$(date +%s)"

@@ -48,6 +48,9 @@ fi
 QR_TGT=/odm/etc/camera/airaw/facemaskconfig.xml
 QR_STF=/data/adb/honor_charge_unlock.qr
 if [ "$qr_fix" = "1" ] && [ -f "$MODDIR/qrfix/facemaskconfig.xml" ] && [ -f "$QR_TGT" ]; then
+  # the source lives under /data/adb (adb_data_file) and the HAL domain cannot
+  # read that label; match the stock target's label before the pre-zygote mount
+  chcon u:object_r:vendor_configs_file:s0 "$MODDIR/qrfix/facemaskconfig.xml" 2>/dev/null
   if grep -aq "facemaskconfig.xml" /proc/mounts 2>/dev/null; then
     echo "on" > "$QR_STF" 2>/dev/null
   elif mount --bind "$MODDIR/qrfix/facemaskconfig.xml" "$QR_TGT" 2>/dev/null; then

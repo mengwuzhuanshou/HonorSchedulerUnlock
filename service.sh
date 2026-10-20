@@ -142,28 +142,67 @@ qr_fix=1
 # re-reads tuning on each camera open, so a change lands on reopening camera
 # (no reboot needed). Default 185.
 smartae_target=185
-# sharpen_cut (v2.0.0): community question 2 (锐化太重). The HDR+ engine
-# /odm/lib64/libhdrp.so reads the detail stages out of each module's hdrp_mc.xml -
-# the tag paths are literal strings in that lib: /Config/RAWNR/lanczos_de/{exp,iso}%d,
-# /Config/RAWNR/DetailAddBack/Layer0..2/CurrentLayer/{exp,iso}%d and the
-# CHANGEREFRAWNR mirrors. In that file <Global> has RAWNRBypass=0 while
-# RAW2YUV/sharpen is factory switch=0 and DE/CE/DRE/SkinSmooth are bypassed, i.e.
-# what actually sharpens the rear main is RAWNR's own detail add-back - so that
-# is what this knob turns down. Columns are picked from the in-file field docs:
-# lanczos_de's [0,512] fixed-point gain groups (nondetail/dark+light/Face) and
-# DetailAddBack's weight+scale floats; every threshold/k/count column is left
-# alone. Rows whose token count does not match the schema are emitted verbatim,
-# so a layout change degrades to "no edit" instead of corrupting the tuning.
-# Value: percent those gains are reduced by. 0 = off (factory), 1..90.
-#   35 = default   20-50 = sane band (20 barely visible, 50 already soft)
-#   above ~60 the image goes visibly soft and detail starts reading as smear.
-# Scope: the rear-primary (_hpb_P) module dirs listed by
-# /odm/etc/camera/{hdrplite,rawhdr}/device.config -> 16 hdrp_mc.xml bind-mounts,
-# each generated from its own stock file (they are NOT identical per module), so
-# the variant in use keeps its own calibration numbers. Same stateless
-# umount->transform->bind-mount delivery as smartae_target: no partition write,
-# lands on reopening the camera, off = plain umount. Default 35.
-sharpen_cut=35
+# sharpen_level (v2.2.0): rear-main sharpening tier. The MTK ISP EE stage in the
+# tuning DB is what actually sharpens the rear main; the v2.0.0 HDRP-XML route
+# (sharpen_cut) was disproven on-device and is retired. Each tier scales the
+# per-ISO-block H1_GN and MASTER_GN_POS/NEG fields of the shared EE table, so the
+# factory relative strength between blocks is kept.
+#   0 = off (factory)   1 = x1.25   2 = x1.5 (default, on-device A/B)
+#   3 = x2.0 (unmeasured)   4 = x2.5 (unmeasured)
+# Higher tiers also amplify ISO noise/grain. The factory ISP_param.db is
+# sha256-pinned and delivered as 4096-byte page patches + bind mount (this ROM has
+# no sqlite3); no partition write, dm-verity untouched, a different ROM build is
+# left untouched. Lands on the next camera open (no reboot). Default 2.
+sharpen_level=2
+# beauty_cut (v2.0.1): community question 3 (前置磨皮/美颜很奇怪). The front
+# beauty engine reads its effect curves from /odm/etc/camera/hwbeauty/front/
+# hwbeauty_params.xml (device.config maps the front modules c848utf/caeuncy to
+# that dir). Each effect is a named, integer, per-beauty-level array (10 numbers
+# = level 1..10), laid out as Mode x ParamterSet(gender/skin/age). The factory
+# curves in the main 11-35 female set are aggressive - SkinSoften reaching 100,
+# FaceSlender 95, EyeEnlargement 55 - which is exactly what reads as over-smoothed
+# / waxy / de-shaped in selfies. This knob scales those intensity curves toward
+# the gentler end by a percent.
+# Only whitelisted integer effect rows are touched; float preview/ratio rows
+# (Preview_*, SkinQualityRatio, EnvLumaRatioSet) and index/threshold tags
+# (SkinToneStyle, SkinTone, ToneSet) are emitted byte-identical, and cut=0
+# round-trips the whole file exactly (its final line has no trailing newline;
+# camfix/beauty.awk is told via eofnl so it neither adds nor drops one). Rows
+# are rewritten only when the tag is whitelisted AND all body tokens are integer,
+# so a relayout degrades to "no edit" instead of a half-mangled tuning.
+# Value: percent those intensities are reduced by. 0 = off (factory), 1..90.
+#   30 = default   10-50 = sane band (10 subtle, 50 clearly more natural)
+#   above ~60 the slim/enlarge pullback is strong enough that face shape reads
+#   wider/less-corrected than users expect, and skin texture starts showing.
+# Scope: one bind-mount, front camera only (rear/back modules untouched). Known
+# gap: the filename follows cameraSceneMode - portrait (23) reads this file, but
+# photo-mode selfie (scene 0) reads hwbeauty_params_lp.xml, which is not bound
+# here, so this knob does not affect photo-page selfies yet.
+# Same stateless umount->awk-transform->bind-mount delivery as the other camfix
+# knobs: no partition write, dm-verity untouched, lands on reopening the camera,
+# off = plain umount. Default 30.
+beauty_cut=30
+# uw_exp_ms / uw_iso_gain (v2.1.0): ultra-wide 0.7x low-light brightness. This
+# ROM's app never routes a multi-frame night pipeline for the UW camera (the
+# 0.7x "night" shot has the same EXIF as normal photo: 200ms/ISO4000), so the
+# only honest lever is one-frame exposure vs gain. 3A caps exposure at
+# 1e9/target_fps - 46000ns and the metastore builder hardcodes target fps=5
+# (199.954ms). This knob raises the AE pline table 311 (calxncy_m030_UW_SN)
+# last-anchor eMax (factory 200000us) and, when needed, rewrites the four
+# `mov w8,#5` in libmtkcam_metastore.so to fps=2 (cap 499.954ms) or fps=1
+# (cap 999.954ms). uw_iso_gain scales the 17 anchors' isoMin/isoMax pair.
+# Measured on LDY-AN00: 910ms/ISO4000 -> EXIF 0.9100015s, luma 26.0, R/G 1.58;
+# 160% -> ISO6400 but AE trades exposure down to 700ms, luma 33.5, R/G 2.71
+# (red cast). Main-camera night reference: luma 42.5-43.1, R/G 1.75-2.01. So the
+# default keeps ISO at 100% (no color cast first) and exposure at 910ms (the
+# same total exposure the main camera uses for night: 7 x 130ms).
+# Range: uw_exp_ms 0=off (factory 200ms), 150-999ms; uw_iso_gain 100-250%.
+# Both factory inputs are sha256-pinned; a mismatch leaves the camera untouched.
+# Delivery is bind-mount only (no partition write, dm-verity untouched). The
+# .so is mapped when camerahalserver starts, so a change kills the HAL and the
+# camera app must be reopened (no reboot).
+uw_exp_ms=910
+uw_iso_gain=100
 verbose=0
 EOF
 fi
@@ -199,7 +238,17 @@ conf_add volte_fix 1
 conf_add volte_radio_cycle 1
 conf_add qr_fix 1
 conf_add smartae_target 185
-conf_add sharpen_cut 35
+# v2.2.0: sharpen_cut is retired with its HDRP-XML route. Migrate an explicit 0
+# (user had sharpening off) to the new tier 0; everything else starts at x1.5.
+if ! grep -q '^sharpen_level=' "$CONF" 2>/dev/null; then
+  case "$(sed -n 's/^sharpen_cut=//p' "$CONF" 2>/dev/null | head -n 1)" in
+    0) echo 'sharpen_level=0' >> "$CONF" ;;
+    *) echo 'sharpen_level=2' >> "$CONF" ;;
+  esac
+fi
+conf_add beauty_cut 30
+conf_add uw_exp_ms 910
+conf_add uw_iso_gain 100
 conf_add verbose 0
 # re-source: conf_add only appends to the file, but an upgraded conf means the
 # first source above ran without the new keys -> without this, fcm_* stay
@@ -262,6 +311,10 @@ echo $$ > "$PIDF"
 QR_TGT=/odm/etc/camera/airaw/facemaskconfig.xml
 QR_STF=/data/adb/honor_charge_unlock.qr
 if [ "$qr_fix" = "1" ] && [ -f "$MODDIR/qrfix/facemaskconfig.xml" ] && [ -f "$QR_TGT" ]; then
+  # the HAL runs as u:r:mtk_hal_camera and is denied adb_data_file; the module
+  # file sits under /data/adb, so relabel it to match the stock target. chcon on
+  # the source inode also applies to an existing bind mount of that inode.
+  chcon u:object_r:vendor_configs_file:s0 "$MODDIR/qrfix/facemaskconfig.xml" 2>/dev/null
   if ! grep -aq "facemaskconfig.xml" /proc/mounts 2>/dev/null; then
     mount --bind "$MODDIR/qrfix/facemaskconfig.xml" "$QR_TGT" 2>/dev/null
   fi
@@ -295,6 +348,8 @@ if [ "$cam_target" -gt 0 ] && [ -f "$CAM_ORIG" ] && [ -f "$CAM_TGT" ]; then
   n=$(grep -c "<Target>$cam_target</Target>" "$CAM_GEN.new" 2>/dev/null)
   if [ "${n:-0}" -eq 3 ] && [ -s "$CAM_GEN.new" ]; then
     mv "$CAM_GEN.new" "$CAM_GEN"; chmod 644 "$CAM_GEN" 2>/dev/null
+    # HAL domain cannot read adb_data_file; the stock target is vendor_configs_file
+    chcon u:object_r:vendor_configs_file:s0 "$CAM_GEN" 2>/dev/null
     if ! grep -q "<Target>$cam_target</Target>" "$CAM_TGT" 2>/dev/null; then
       umount "$CAM_TGT" 2>/dev/null
       mount --bind "$CAM_GEN" "$CAM_TGT" 2>/dev/null
@@ -312,65 +367,342 @@ else
   echo "off" > "$CAM_STF" 2>/dev/null
 fi
 
-# ---------- HDR+ sharpen knob (v2.0.0): numeric, one bind-mount per module ----------
-# Same stateless delivery as smartae_target: umount first so the transform always
-# reads the stock tuning, then bind-mount the generated file. No daemon-loop
-# polling - a panel toggle re-runs this through webui_ctl's daemon restart, and
-# the camera picks the new tuning up on its next open.
-# Success is proven per file by reading the <!--shpN--> marker back through the
-# /odm path (content, not /proc/mounts - see the note above), and by the row
-# count awk reports: only the complete schema (both lanczos_de blocks + all three
-# DetailAddBack layers in both trees) is mounted, so a ROM that renamed or
-# re-laid-out these columns leaves the tuning untouched instead of half-edited.
-SHP_AWK=$MODDIR/camfix/sharpen.awk
+# ---------- Rear-main sharpen knob (v2.2.0): EE table in the ISP tuning DB ----------
+# The real rear-main sharpener is the MTK ISP EE stage, not the HDR+ hdrp_mc.xml
+# tags the v2.0.0 knob edited - that route was disproven on-device (its A/B showed
+# no change, and those tags have no runtime reader in this pipeline). Disassembly
+# of libispfeature_mtkcam.v4l2.so shows Smooth_EE reading H1_GN/H2_GN/H3_GN (0x10
+# bits0-4 / bits8-12, 0x12 bits0-4) and MASTER_GN_POS/NEG (0x40/0x41) out of
+# isp_ee_Param, interpolating them per ISO block and packing them for EECNR.
+# The rows live in the single-row `ee` BLOB of
+# /odm/.../calvrns_m010_ldy/ISP_param.db (1562 x 160 B). ISP_info.db links every
+# capture FeatureModule (22 Capture_default/LPNR=73, 23=6, 29 cfnr=110, AIISP=137)
+# to NVRAM group 'EE', so one ee column covers normal/LPNR/MFNR/AIISP captures.
+# This ROM has no sqlite3, so tiers ship as 4096-byte page patches: the stock DB
+# is sha256-pinned, copied to /data/adb/camfix, the 63 changed pages are written
+# with dd, relabelled vendor_file (the stock label) and bind-mounted. Off = umount.
+# Each tier scales H1_GN and MASTER_GN_POS/NEG per ISO block, so the factory
+# relative strength between blocks is kept (a flat value would over-sharpen the
+# blocks the tuning already treats gently). H1 is capped at its 5-bit field limit
+# 31; MASTER_GN is an unmasked u8. H2/H3 stay at factory (H2 is 0 in every block).
+#   level 0 = off (factory)   1 = x1.25   2 = x1.5 (default, on-device A/B)
+#   3 = x2.0 (unmeasured)     4 = x2.5 (unmeasured)
+# Cost grows with the level: the blocks that sharpen hardest also amplify ISO
+# noise/grain. Same delivery as the other camfix knobs: no partition write,
+# dm-verity untouched, and the HAL re-reads the DB per camera open, so a daemon
+# restart lands the new tier on the next camera open (no reboot).
+SHP_TGT=/odm/bin/crossbuild/DataSet/SQLiteModule/db/tuning_DB/calvrns_m010_ldy/ISP_param.db
+SHP_STOCK_SHA=15a18414c0c7ce5d648bf341473059da996b46426ff63ca590ad8d31c441f79b
+SHP_PATCH=$MODDIR/ee_patch
 SHP_DIR=/data/adb/camfix
 SHP_STF=/data/adb/honor_charge_unlock.shp
-shp_cut=${sharpen_cut:-35}
-case "$shp_cut" in ''|*[!0-9]*) shp_cut=35 ;; esac
-[ "$shp_cut" -gt 90 ] && shp_cut=90
-shp_list=""
+shp_lv=${sharpen_level:-2}
+case "$shp_lv" in ''|*[!0-9]*) shp_lv=2 ;; esac
+[ "$shp_lv" -gt 4 ] && shp_lv=4
+# retire the v2.0.0 hdrp_mc.xml binds (ineffective; harmless if absent)
 for shp_b in /odm/etc/camera/hdrplite /odm/etc/camera/rawhdr; do
-  # _hpb_P = rear primary (the module the complaints are about); _hpb_S entries
-  # (ultrawide/tele) are deliberately not touched.
   for shp_d in $(grep '_hpb_P=' "$shp_b/device.config" 2>/dev/null | sed 's|.*=||' | tr -d '\r'); do
-    [ -f "${shp_d}hdrp_mc.xml" ] && shp_list="$shp_list ${shp_d}hdrp_mc.xml"
+    umount "${shp_d}hdrp_mc.xml" 2>/dev/null
   done
 done
-shp_want=0
-for shp_t in $shp_list; do shp_want=$((shp_want + 1)); done
-if [ "$shp_cut" -gt 0 ] && [ -n "$shp_list" ] && [ -f "$SHP_AWK" ]; then
+rm -f "$SHP_DIR"/hdrp_mc_*.xml 2>/dev/null
+# unmount first: the sha gate must read the factory DB, not a previous tier
+umount "$SHP_TGT" 2>/dev/null
+if [ "$shp_lv" -ge 1 ] && [ -f "$SHP_TGT" ] && [ -f "$SHP_PATCH/lv$shp_lv.bin" ] \
+   && [ -f "$SHP_PATCH/lv$shp_lv.txt" ] && [ -f "$SHP_PATCH/lv$shp_lv.sha" ]; then
   mkdir -p "$SHP_DIR" 2>/dev/null
-  shp_i=0; shp_ok=0
-  for shp_t in $shp_list; do
-    shp_i=$((shp_i + 1))
-    shp_g="$SHP_DIR/hdrp_mc_$shp_i.xml"
-    umount "$shp_t" 2>/dev/null
-    awk -v cut="$shp_cut" -v cnt="$shp_g.cnt" -f "$SHP_AWK" "$shp_t" > "$shp_g.new" 2>/dev/null
-    nr=$(cat "$shp_g.cnt" 2>/dev/null); rm -f "$shp_g.cnt" 2>/dev/null
-    case "$nr" in ''|*[!0-9]*) nr=0 ;; esac
-    if [ -s "$shp_g.new" ] && [ "$nr" -ge 100 ]; then
-      mv "$shp_g.new" "$shp_g"; chmod 644 "$shp_g" 2>/dev/null
-      mount --bind "$shp_g" "$shp_t" 2>/dev/null
+  SHP_GEN=$SHP_DIR/ISP_param_lv$shp_lv.db
+  if [ "$(sha256sum "$SHP_TGT" 2>/dev/null | cut -d' ' -f1)" = "$SHP_STOCK_SHA" ]; then
+    cp "$SHP_TGT" "$SHP_GEN.new" 2>/dev/null
+    shp_rc=0
+    while read -r shp_pg shp_of; do
+      dd if="$SHP_PATCH/lv$shp_lv.bin" of="$SHP_GEN.new" bs=4096 \
+         skip="$shp_of" seek="$shp_pg" count=1 conv=notrunc 2>/dev/null || shp_rc=1
+    done < "$SHP_PATCH/lv$shp_lv.txt"
+    if [ "$shp_rc" = "0" ] && [ "$(sha256sum "$SHP_GEN.new" 2>/dev/null | cut -d' ' -f1)" = "$(cat "$SHP_PATCH/lv$shp_lv.sha" 2>/dev/null)" ]; then
+      mv "$SHP_GEN.new" "$SHP_GEN" 2>/dev/null
+      chmod 644 "$SHP_GEN" 2>/dev/null
+      # the factory DB is vendor_file (not vendor_configs_file) and the HAL
+      # domain cannot read adb_data_file, so match the stock label exactly
+      chcon u:object_r:vendor_file:s0 "$SHP_GEN" 2>/dev/null
+      mount --bind "$SHP_GEN" "$SHP_TGT" 2>/dev/null
+      # content check through the /odm path: an unmounted target still reads the
+      # factory EE blob, so cmp fails instead of reporting a false "on"
+      if cmp -s "$SHP_GEN" "$SHP_TGT"; then
+        echo "on $shp_lv" > "$SHP_STF" 2>/dev/null
+      else
+        echo "mount-failed $shp_lv" > "$SHP_STF" 2>/dev/null
+      fi
     else
-      rm -f "$shp_g.new"
+      rm -f "$SHP_GEN.new" 2>/dev/null
+      echo "patch-failed $shp_lv" > "$SHP_STF" 2>/dev/null
     fi
-    grep -aq "shp$shp_cut" "$shp_t" 2>/dev/null && shp_ok=$((shp_ok + 1))
-  done
-  # prune generated files from a previous, larger target set
-  for shp_old in "$SHP_DIR"/hdrp_mc_*.xml; do
-    [ -f "$shp_old" ] || continue
-    shp_k=$(basename "$shp_old" | tr -dc '0-9')
-    [ "${shp_k:-0}" -gt "$shp_i" ] && rm -f "$shp_old"
-  done
-  if [ "$shp_ok" -gt 0 ]; then
-    echo "on $shp_cut $shp_ok/$shp_want" > "$SHP_STF" 2>/dev/null
   else
-    echo "mount-failed $shp_cut 0/$shp_want" > "$SHP_STF" 2>/dev/null
+    echo "unsupported $shp_lv" > "$SHP_STF" 2>/dev/null
   fi
 else
-  for shp_t in $shp_list; do umount "$shp_t" 2>/dev/null; done
+  rm -f "$SHP_DIR"/ISP_param_lv*.db 2>/dev/null
   echo "off" > "$SHP_STF" 2>/dev/null
 fi
+
+# ---------- Front beauty knob (v2.0.1): numeric, single bind-mount ----------
+# Same stateless delivery as the other camfix knobs: umount so the transform
+# always reads the pristine module copy, awk-scale the whitelisted effect curves,
+# bind-mount, then prove the mount took by reading the <!--btyN--> marker back
+# THROUGH the /odm path (content check, not /proc/mounts - see the SmartAE note).
+# The awk's row count is a schema fingerprint (this file matches 192 effect rows);
+# mounting only proceeds past the threshold, so a ROM that relaid-out these arrays
+# leaves the tuning untouched instead of half-mangled. Front camera only - the
+# back modules the same engine reads are never bound.
+BTY_AWK=$MODDIR/camfix/beauty.awk
+BTY_ORIG=$MODDIR/camfix/hwbeauty_front_orig.xml
+BTY_TGT=/odm/etc/camera/hwbeauty/front/hwbeauty_params.xml
+BTY_DIR=/data/adb/camfix
+BTY_GEN=$BTY_DIR/hwbeauty_front.xml
+BTY_STF=/data/adb/honor_charge_unlock.bty
+bty_cut=${beauty_cut:-30}
+case "$bty_cut" in ''|*[!0-9]*) bty_cut=30 ;; esac
+[ "$bty_cut" -gt 90 ] && bty_cut=90
+if [ "$bty_cut" -gt 0 ] && [ -f "$BTY_ORIG" ] && [ -f "$BTY_TGT" ] && [ -f "$BTY_AWK" ]; then
+  mkdir -p "$BTY_DIR" 2>/dev/null
+  # the stock file's final line has no trailing newline; tell awk so its record
+  # writer neither adds one (cut stays a byte-accurate round-trip) nor omits one
+  # on a source that does have it.
+  bty_eof=1; [ -n "$(tail -c1 "$BTY_ORIG" 2>/dev/null)" ] && bty_eof=0
+  umount "$BTY_TGT" 2>/dev/null
+  awk -v cut="$bty_cut" -v eofnl="$bty_eof" -v cnt="$BTY_GEN.cnt" -f "$BTY_AWK" "$BTY_ORIG" > "$BTY_GEN.new" 2>/dev/null
+  nb=$(cat "$BTY_GEN.cnt" 2>/dev/null); rm -f "$BTY_GEN.cnt" 2>/dev/null
+  case "$nb" in ''|*[!0-9]*) nb=0 ;; esac
+  if [ -s "$BTY_GEN.new" ] && [ "$nb" -ge 100 ]; then
+    mv "$BTY_GEN.new" "$BTY_GEN"; chmod 644 "$BTY_GEN" 2>/dev/null
+    # same SELinux gate as the other camfix knobs: adb_data_file is denied to
+    # u:r:mtk_hal_camera, the stock hwbeauty file is vendor_configs_file
+    chcon u:object_r:vendor_configs_file:s0 "$BTY_GEN" 2>/dev/null
+    mount --bind "$BTY_GEN" "$BTY_TGT" 2>/dev/null
+  else
+    rm -f "$BTY_GEN.new"
+  fi
+  if grep -aq "bty$bty_cut" "$BTY_TGT" 2>/dev/null; then
+    echo "on $bty_cut" > "$BTY_STF" 2>/dev/null
+  else
+    echo "mount-failed $bty_cut" > "$BTY_STF" 2>/dev/null
+  fi
+else
+  umount "$BTY_TGT" 2>/dev/null
+  echo "off" > "$BTY_STF" 2>/dev/null
+fi
+
+# v2.0.3 one-time upgrade cleanup: the removed wide_ae_target knob left a bind-mount
+# on the orphaned back/wide/SmartAE.xml from earlier builds. Unmount it so /odm reads
+# stay honest while A/B testing the night toggle (idempotent, cheap, once per start).
+if grep -q ' /odm/etc/camera/smartae/back/wide/SmartAE.xml ' /proc/mounts 2>/dev/null; then
+  umount /odm/etc/camera/smartae/back/wide/SmartAE.xml 2>/dev/null
+fi
+rm -f /data/adb/honor_charge_unlock.wae /data/adb/camfix/SmartAE_wide.xml 2>/dev/null
+
+# v2.0.4 one-time upgrade cleanup: the removed night_ev knob (v2.0.3) left a
+# bind-mount on supernight/config.xml from earlier builds. Unmount it so /odm
+# reads stay honest while A/B testing the gate toggle (idempotent, once per start).
+if grep -q ' /odm/etc/camera/supernight/config.xml ' /proc/mounts 2>/dev/null; then
+  umount /odm/etc/camera/supernight/config.xml 2>/dev/null
+fi
+rm -f /data/adb/honor_charge_unlock.nev /data/adb/camfix/supernight_config.xml 2>/dev/null
+
+# v2.0.5 one-time upgrade cleanup: the removed wide_night_gate knob (v2.0.4) left
+# a bind-mount on featureConfig/dynamic_parameter.xml from that build. That A/B
+# mounted a file with no proven runtime reader, so it cannot back any conclusion
+# about the gate; the knob stays retired. Unmount it so /odm reads stay honest
+# (idempotent, cheap, once per start).
+if grep -q ' /odm/etc/camera/featureConfig/dynamic_parameter.xml ' /proc/mounts 2>/dev/null; then
+  umount /odm/etc/camera/featureConfig/dynamic_parameter.xml 2>/dev/null
+fi
+rm -f /data/adb/honor_charge_unlock.wng /data/adb/camfix/dynamic_parameter.xml 2>/dev/null
+
+# v2.0.7 payload cleanup: uw_gain was removed after that AE-table route was
+# disproven on-device (raising the 311 curve blindly triggered a P1Node
+# TimeBomb on dark scenes). Drop the payload and stale state from v2.0.6
+# installs. Do NOT unmount the AE DB here: the v2.1.0 block below owns that
+# mount now, and this code runs on every daemon start (webui_ctl restarts the
+# daemon after every panel write), so an unmount here would silently revert
+# the uw_exp_ms/uw_iso_gain knobs.
+rm -f /data/adb/honor_charge_unlock.uwg /data/adb/honor_charge_unlock.uwg.mnt \
+      "$MODDIR/camfix/uw_gain_blobs.bin" 2>/dev/null
+
+# ---------- Ultra-wide low-light exposure knob (v2.1.0) ----------
+# Mechanism/measurements live in the config template above. Both payloads are
+# rebuilt from the factory files on every daemon start; the factory sha256 is
+# the gate, so a different ROM build is left untouched instead of being
+# half-patched. Delivery is bind-mount only (no partition write, dm-verity
+# untouched), and "off" is a plain umount.
+UWA_DB_TGT=/odm/bin/crossbuild/DataSet/SQLiteModule/db/ae/ParameterDB_ae.db
+UWA_SO_TGT=/vendor/lib64/mt6993/libmtkcam_metastore.so
+UWA_DB_SHA=8e271ec39bf5bba14fa26e17bd0862becedb63ccf3cee8cc5cd210328b9a3732
+UWA_SO_SHA=8e593affebc3e9ce6f15ba041f75ac7204993d6d10d10f041cf961f517b7937f
+UWA_DB_BASE=4265296
+UWA_DB_EMAX=4265560
+UWA_DB_ISO=4265568
+UWA_SO_OFF1=1335656
+UWA_DIR=/data/adb/camfix
+UWA_DB_GEN=$UWA_DIR/uw_ae.db
+UWA_SO_GEN=$UWA_DIR/uw_metastore.so
+UWA_STF=/data/adb/honor_charge_unlock.uwa
+uw_exp_ms=${uw_exp_ms:-910}
+case "$uw_exp_ms" in ''|*[!0-9]*) uw_exp_ms=910 ;; esac
+if [ "$uw_exp_ms" -gt 0 ]; then
+  [ "$uw_exp_ms" -lt 150 ] && uw_exp_ms=150
+  [ "$uw_exp_ms" -gt 999 ] && uw_exp_ms=999
+fi
+uw_iso_gain=${uw_iso_gain:-100}
+case "$uw_iso_gain" in ''|*[!0-9]*) uw_iso_gain=100 ;; esac
+[ "$uw_iso_gain" -lt 100 ] && uw_iso_gain=100
+[ "$uw_iso_gain" -gt 250 ] && uw_iso_gain=250
+# stage target fps to the smallest drop that still allows the requested
+# exposure (stock 5 = 199.954ms cap, 2 = 499.954ms, 1 = 999.954ms)
+if [ "$uw_exp_ms" -eq 0 ] || [ "$uw_exp_ms" -le 199 ]; then
+  uw_fps=5
+elif [ "$uw_exp_ms" -le 499 ]; then
+  uw_fps=2
+else
+  uw_fps=1
+fi
+uw_rd32() { od -An -tu4 -j "$2" -N4 "$1" 2>/dev/null | tr -d ' \n'; }
+uw_wr32() {  # file offset value: little-endian bytes -> dd (NUL-safe)
+  uw_b0=$(($3 & 255)); uw_b1=$((($3 >> 8) & 255))
+  uw_b2=$((($3 >> 16) & 255)); uw_b3=$((($3 >> 24) & 255))
+  uw_o0=$(printf '%03o' $uw_b0); uw_o1=$(printf '%03o' $uw_b1)
+  uw_o2=$(printf '%03o' $uw_b2); uw_o3=$(printf '%03o' $uw_b3)
+  printf "\\$uw_o0\\$uw_o1\\$uw_o2\\$uw_o3" | dd of="$1" bs=1 seek="$2" conv=notrunc 2>/dev/null
+}
+uw_cur_exp=""; uw_cur_iso=""; uw_cur_fps=0
+if [ -f "$UWA_DB_TGT" ]; then
+  uw_v=$(uw_rd32 "$UWA_DB_TGT" "$UWA_DB_EMAX")
+  case "$uw_v" in ''|*[!0-9]*) ;; *) uw_cur_exp=$((uw_v / 1000)) ;; esac
+  uw_v=$(uw_rd32 "$UWA_DB_TGT" "$UWA_DB_ISO")
+  case "$uw_v" in ''|*[!0-9]*) ;; *) uw_cur_iso=$((uw_v * 100 / 72000)) ;; esac
+fi
+if [ -f "$UWA_SO_TGT" ]; then
+  uw_w=$(od -An -tx4 -j "$UWA_SO_OFF1" -N4 "$UWA_SO_TGT" 2>/dev/null | tr -d ' \n')
+  case "$uw_w" in
+    528000a8|528000A8) uw_cur_fps=5 ;;
+    52800048) uw_cur_fps=2 ;;
+    52800028) uw_cur_fps=1 ;;
+  esac
+fi
+uw_new="off"
+[ "$uw_exp_ms" -gt 0 ] && uw_new="on exp=$uw_exp_ms iso=$uw_iso_gain fps=$uw_fps"
+uw_match=0
+if [ "$uw_exp_ms" -eq 0 ]; then
+  [ "$uw_cur_exp" = "200" ] && [ "$uw_cur_iso" = "100" ] && \
+    [ "$uw_cur_fps" = "5" ] && uw_match=1
+else
+  [ "$uw_cur_exp" = "$uw_exp_ms" ] && [ "$uw_cur_iso" = "$uw_iso_gain" ] && \
+    [ "$uw_cur_fps" = "$uw_fps" ] && uw_match=1
+fi
+uw_applied=0
+if [ "$uw_match" = "0" ]; then
+  # camerahalserver maps the metastore .so into memory, so a mount swap is not
+  # visible to a running HAL. Kill it before touching the mounts, then kill
+  # again after the bind (init may respawn it in the gap); the camera app is
+  # closed while the WebUI is in use, and the next open loads the new mapping.
+  uw_pid=$(pidof camerahalserver 2>/dev/null); uw_pid=${uw_pid%% *}
+  [ -n "$uw_pid" ] && kill -TERM "$uw_pid" 2>/dev/null
+  sleep 0.5
+  if grep -qF " $UWA_DB_TGT " /proc/mounts 2>/dev/null; then
+    umount "$UWA_DB_TGT" 2>/dev/null || umount -l "$UWA_DB_TGT" 2>/dev/null
+  fi
+  if grep -qF " $UWA_SO_TGT " /proc/mounts 2>/dev/null; then
+    umount "$UWA_SO_TGT" 2>/dev/null || umount -l "$UWA_SO_TGT" 2>/dev/null
+  fi
+  uw_db_ok=0; uw_so_ok=0
+  uw_s=$(sha256sum "$UWA_DB_TGT" 2>/dev/null | cut -d' ' -f1)
+  [ "$uw_s" = "$UWA_DB_SHA" ] && uw_db_ok=1
+  uw_s=$(sha256sum "$UWA_SO_TGT" 2>/dev/null | cut -d' ' -f1)
+  [ "$uw_s" = "$UWA_SO_SHA" ] && uw_so_ok=1
+  if [ "$uw_db_ok" != "1" ] || [ "$uw_so_ok" != "1" ]; then
+    # different ROM build: factory files stay in place, report it in the panel
+    uw_new="unsupported db=$uw_db_ok so=$uw_so_ok"
+  elif [ "$uw_exp_ms" -eq 0 ]; then
+    uw_new="off"
+  else
+    mkdir -p "$UWA_DIR" 2>/dev/null
+    # --- AE pline 311: raise the darkest anchor's exposure ceiling ---
+    cp -f "$UWA_DB_TGT" "$UWA_DB_GEN.new" 2>/dev/null
+    uw_wr32 "$UWA_DB_GEN.new" "$UWA_DB_EMAX" $((uw_exp_ms * 1000))
+    if [ "$uw_iso_gain" -ne 100 ]; then
+      uw_i=0
+      while [ "$uw_i" -lt 17 ]; do
+        uw_o=$((UWA_DB_BASE + 8 + 16 * uw_i + 8))
+        uw_mx=$(uw_rd32 "$UWA_DB_GEN.new" "$uw_o")
+        uw_mn=$(uw_rd32 "$UWA_DB_GEN.new" $((uw_o + 4)))
+        case "$uw_mx" in ''|*[!0-9]*) break ;; esac
+        case "$uw_mn" in ''|*[!0-9]*) break ;; esac
+        uw_wr32 "$UWA_DB_GEN.new" "$uw_o" $((uw_mx * uw_iso_gain / 100))
+        uw_wr32 "$UWA_DB_GEN.new" $((uw_o + 4)) $((uw_mn * uw_iso_gain / 100))
+        uw_i=$((uw_i + 1))
+      done
+    fi
+    uw_chk_exp=$(uw_rd32 "$UWA_DB_GEN.new" "$UWA_DB_EMAX")
+    uw_chk_iso=$(uw_rd32 "$UWA_DB_GEN.new" "$UWA_DB_ISO")
+    if [ "$uw_chk_exp" = "$((uw_exp_ms * 1000))" ] && \
+       [ "$uw_chk_iso" = "$((72000 * uw_iso_gain / 100))" ] && \
+       [ -s "$UWA_DB_GEN.new" ]; then
+      mv -f "$UWA_DB_GEN.new" "$UWA_DB_GEN"; chmod 644 "$UWA_DB_GEN" 2>/dev/null
+      # the HAL cannot read adb_data_file; the factory AE DB is vendor_file
+      chcon u:object_r:vendor_file:s0 "$UWA_DB_GEN" 2>/dev/null
+      mount --bind "$UWA_DB_GEN" "$UWA_DB_TGT" 2>/dev/null
+    else
+      rm -f "$UWA_DB_GEN.new"
+    fi
+    # --- metastore: target fps 5 -> 2/1 (four `mov w8,#5` immediates) ---
+    if [ "$uw_fps" != "5" ]; then
+      # 0x52800008 | (fps << 5), as decimals to avoid hex-arithmetic quirks
+      if [ "$uw_fps" = "2" ]; then uw_word=1384120392; else uw_word=1384120360; fi
+      cp -f "$UWA_SO_TGT" "$UWA_SO_GEN.new" 2>/dev/null
+      for uw_o in 1335656 1336748 1338224 1338600; do
+        uw_wr32 "$UWA_SO_GEN.new" "$uw_o" "$uw_word"
+      done
+      uw_c=0
+      for uw_o in 1335656 1336748 1338224 1338600; do
+        uw_w=$(od -An -tx4 -j "$uw_o" -N4 "$UWA_SO_GEN.new" 2>/dev/null | tr -d ' \n')
+        [ "$uw_w" = "$(printf '%x' $uw_word)" ] && uw_c=$((uw_c + 1))
+      done
+      if [ "$uw_c" = "4" ] && [ -s "$UWA_SO_GEN.new" ]; then
+        mv -f "$UWA_SO_GEN.new" "$UWA_SO_GEN"; chmod 644 "$UWA_SO_GEN" 2>/dev/null
+        # same label the factory lib has on the vendor partition
+        chcon u:object_r:vendor_file:s0 "$UWA_SO_GEN" 2>/dev/null
+        mount --bind "$UWA_SO_GEN" "$UWA_SO_TGT" 2>/dev/null
+      else
+        rm -f "$UWA_SO_GEN.new"
+      fi
+    fi
+    # prove the mount by reading the values back THROUGH /odm and /vendor
+    # (content check, not /proc/mounts)
+    uw_e=$(uw_rd32 "$UWA_DB_TGT" "$UWA_DB_EMAX")
+    uw_j=$(uw_rd32 "$UWA_DB_TGT" "$UWA_DB_ISO")
+    uw_f=$(od -An -tx4 -j "$UWA_SO_OFF1" -N4 "$UWA_SO_TGT" 2>/dev/null | tr -d ' \n')
+    uw_got_fps=0
+    case "$uw_f" in
+      528000a8|528000A8) uw_got_fps=5 ;;
+      52800048) uw_got_fps=2 ;;
+      52800028) uw_got_fps=1 ;;
+    esac
+    if [ "$uw_e" = "$((uw_exp_ms * 1000))" ] && \
+       [ "$uw_j" = "$((72000 * uw_iso_gain / 100))" ] && \
+       [ "$uw_got_fps" = "$uw_fps" ]; then
+      uw_applied=1
+    else
+      uw_new="mount-failed exp=${uw_e:-?} iso=${uw_j:-?} fps=$uw_got_fps"
+    fi
+  fi
+  # a HAL may have respawned between the first kill and the bind; kill once
+  # more only when the mounts actually changed (or when turning the knob off)
+  if [ "$uw_applied" = "1" ] || [ "$uw_exp_ms" -eq 0 ]; then
+    uw_pid=$(pidof camerahalserver 2>/dev/null); uw_pid=${uw_pid%% *}
+    [ -n "$uw_pid" ] && kill -TERM "$uw_pid" 2>/dev/null
+  fi
+fi
+echo "$uw_new" > "$UWA_STF" 2>/dev/null
+log "uw: $uw_new (was exp=$uw_cur_exp iso=$uw_cur_iso fps=$uw_cur_fps match=$uw_match)"
 
 # wait for boot
 while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 2; done

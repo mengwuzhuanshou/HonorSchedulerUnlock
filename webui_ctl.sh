@@ -25,12 +25,27 @@ case "$1" in
         # rear-main AE luma target: 0 = off, sane band 100..250 (factory 200)
         case "$v" in ""|*[!0-9]*) echo "ERR bad value"; exit 1 ;; esac
         [ "$v" -ne 0 ] && { [ "$v" -lt 100 ] && v=100; [ "$v" -gt 250 ] && v=250; } ;;
-      sharpen_cut)
-        # HDR+ detail add-back cut in percent: 0 = off (factory gains), 1..90
+      sharpen_level)
+        # rear-main EE sharpening tier: 0 = off (factory), 1..4 (default x1.5)
+        case "$v" in ""|*[!0-9]*) echo "ERR bad value"; exit 1 ;; esac
+        [ "$v" -gt 4 ] && v=4 ;;
+      beauty_cut)
+        # front-beauty intensity cut in percent: 0 = off (factory curves), 1..90
         case "$v" in ""|*[!0-9]*) echo "ERR bad value"; exit 1 ;; esac
         [ "$v" -gt 90 ] && v=90 ;;
       scroll_cap)
         case "$v" in 0|700000|800000|900000) ;; *) echo "ERR bad value"; exit 1 ;; esac ;;
+      uw_exp_ms)
+        # ultra-wide low-light exposure ceiling: 0 = off (factory 200ms),
+        # sane band 150..999; 200-499 selects the fps2 stage, 500+ fps1
+        case "$v" in ""|*[!0-9]*) echo "ERR bad value"; exit 1 ;; esac
+        [ "$v" -gt 0 ] && { [ "$v" -lt 150 ] && v=150; [ "$v" -gt 999 ] && v=999; } ;;
+      uw_iso_gain)
+        # ultra-wide AE table ISO scale in percent: factory 100, cap 250;
+        # measured >=150 trades exposure for gain and shifts color red
+        case "$v" in ""|*[!0-9]*) echo "ERR bad value"; exit 1 ;; esac
+        [ "$v" -lt 100 ] && v=100
+        [ "$v" -gt 250 ] && v=250 ;;
       launch_boost_ms)
         case "$v" in ""|*[!0-9]*) echo "ERR bad value"; exit 1 ;; esac
         [ "$v" -gt 5000 ] && v=5000 ;;

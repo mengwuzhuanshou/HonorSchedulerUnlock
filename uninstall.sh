@@ -15,16 +15,40 @@ umount /odm/etc/camera/airaw/facemaskconfig.xml 2>/dev/null
 # target instantly and a reboot leaves nothing behind.
 rm -f /data/adb/honor_charge_unlock.cam
 umount /odm/etc/camera/smartae/back/SmartAE.xml 2>/dev/null
-# sharpen_cut: same mechanism over the rear-primary hdrp_mc.xml set (mounted from
-# generated files under /data/adb/camfix). Unmount first, then drop the
-# generated files - the stock /odm tuning was never written, so the camera is
-# back on factory detail add-back immediately.
+# sharpen_level (v2.2.0): drop the EE tuning-DB bind. The factory ISP_param.db
+# was never written, so unmounting restores factory sharpening immediately (a
+# -l fallback covers a HAL that still holds the mount during uninstall).
+umount /odm/bin/crossbuild/DataSet/SQLiteModule/db/tuning_DB/calvrns_m010_ldy/ISP_param.db 2>/dev/null || \
+  umount -l /odm/bin/crossbuild/DataSet/SQLiteModule/db/tuning_DB/calvrns_m010_ldy/ISP_param.db 2>/dev/null
+rm -f /data/adb/honor_charge_unlock.shp /data/adb/camfix/ISP_param_lv*.db
+# retired v2.0.0 sharpen_cut binds (older installs): unmount the rear-primary
+# hdrp_mc.xml set so an uninstall does not keep that tuning until the next boot.
 for shp_b in /odm/etc/camera/hdrplite /odm/etc/camera/rawhdr; do
   for shp_d in $(grep '_hpb_P=' "$shp_b/device.config" 2>/dev/null | sed 's|.*=||' | tr -d '\r'); do
     umount "${shp_d}hdrp_mc.xml" 2>/dev/null
   done
 done
-rm -f /data/adb/honor_charge_unlock.shp
+# beauty_cut / night_ev: same restore-on-unmount rule. The stock /odm files were never
+# written, so unmounting returns the camera to factory tuning immediately - without
+# this an uninstall would keep the modified tuning until the next reboot.
+rm -f /data/adb/honor_charge_unlock.bty
+umount /odm/etc/camera/hwbeauty/front/hwbeauty_params.xml 2>/dev/null
+rm -f /data/adb/honor_charge_unlock.wng
+umount /odm/etc/camera/featureConfig/dynamic_parameter.xml 2>/dev/null
+# uw_exp_ms / uw_iso_gain (v2.1.0): drop the AE pline 311 and metastore binds.
+# Neither factory file was written, so unmounting is a full restore; the HAL
+# is restarted once so the next camera open maps the factory .so (the running
+# process keeps its old mapping until it dies).
+rm -f /data/adb/honor_charge_unlock.uwa
+umount /odm/bin/crossbuild/DataSet/SQLiteModule/db/ae/ParameterDB_ae.db 2>/dev/null || \
+  umount -l /odm/bin/crossbuild/DataSet/SQLiteModule/db/ae/ParameterDB_ae.db 2>/dev/null
+umount /vendor/lib64/mt6993/libmtkcam_metastore.so 2>/dev/null || \
+  umount -l /vendor/lib64/mt6993/libmtkcam_metastore.so 2>/dev/null
+uw_pid=$(pidof camerahalserver 2>/dev/null); uw_pid=${uw_pid%% *}
+[ -n "$uw_pid" ] && kill -TERM "$uw_pid" 2>/dev/null
+# legacy v2.0.3 night_ev mount (supernight/config.xml) - unmount if still present
+rm -f /data/adb/honor_charge_unlock.nev
+umount /odm/etc/camera/supernight/config.xml 2>/dev/null
 rm -rf /data/adb/camfix
 # lsp_fix: if uninstalled inside the masked window (first ~minute after boot),
 # the locale would otherwise stay en-US until the next boot. Restore as best

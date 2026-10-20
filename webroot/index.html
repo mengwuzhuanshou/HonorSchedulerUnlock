@@ -117,9 +117,18 @@ canvas{width:100%;height:150px;display:block}
   <div class="row"><span class="n">相机曝光抑制 · 主摄测光目标 Target<br><span style="color:var(--dim);font-size:11px">越小整体越暗、高光越不容易溢出。出厂 200 ｜ 推荐 170–195 ｜ 0 = 关闭（回到出厂）｜ 默认 185<br>低于 ~170 暗光/室内人脸会发灰闷；改完重开相机即生效，无需重启</span></span>
     <span style="display:flex;align-items:center;gap:6px"><input class="num" id="numCam" type="number" min="0" max="250" step="5" value="185"><button class="btn2" id="btnCam">应用</button></span></div>
   <div class="note" id="dCamNote">—</div>
-  <div class="row"><span class="n">相机锐化抑制 · HDR+ 细节回加降幅<br><span style="color:var(--dim);font-size:11px">越大细节越柔和、涂抹感越少，太大会发糊。出厂 0 ｜ 推荐 20–50 ｜ 0 = 关闭（回到出厂）｜ 默认 35<br>只动后置主摄的多帧细节回加，不动测光；改完重开相机即生效，无需重启</span></span>
-    <span style="display:flex;align-items:center;gap:6px"><input class="num" id="numShp" type="number" min="0" max="90" step="5" value="35"><span class="sub">%</span><button class="btn2" id="btnShp">应用</button></span></div>
+  <div class="row"><span class="n">相机锐化 · 后置主摄 EE 档位<br><span style="color:var(--dim);font-size:11px">0 = 关闭（出厂）｜1 = ×1.25｜2 = ×1.5（默认，实拍验证）｜3 = ×2.0｜4 = ×2.5<br>按 ISO 块同比增强主摄 EE 锐度，保留各块相对强弱；档位越高噪点/颗粒越明显（3/4 档未实拍标定）。改完重开相机生效，无需重启</span></span>
+    <span style="display:flex;align-items:center;gap:6px"><input class="num" id="numShp" type="number" min="0" max="4" step="1" value="2"><span class="sub">档</span><button class="btn2" id="btnShp">应用</button></span></div>
   <div class="note" id="dShpNote">—</div>
+  <div class="row"><span class="n">前置美颜抑制 · 磨皮/美型降幅<br><span style="color:var(--dim);font-size:11px">降幅越大磨皮与瘦脸大眼越轻、越接近真实皮肤，太大会减弱美型、脸显宽且皮肤纹理外露。出厂 0 ｜ 推荐 10–50 ｜ 0 = 关闭（回到出厂）｜ 默认 30<br>只动前置摄像头的磨皮/美颜强度曲线，不动后置；当前仅覆盖人像模式，拍照页自拍读取的 lp 文件尚未纳入（修复中）；改完重开相机即生效，无需重启</span></span>
+    <span style="display:flex;align-items:center;gap:6px"><input class="num" id="numBty" type="number" min="0" max="90" step="5" value="30"><span class="sub">%</span><button class="btn2" id="btnBty">应用</button></span></div>
+  <div class="note" id="dBtyNote">—</div>
+  <div class="row"><span class="n">超广角(0.7x)暗光长曝 · 曝光上限<br><span style="color:var(--dim);font-size:11px">0 = 关闭（回到出厂 200ms）｜默认 910ms（对齐主摄夜景总曝光 0.91s）｜范围 150–999<br>越长越亮，代价是手抖/运动模糊；200–499 走 fps2 档、500+ 走 fps1 档。改完自动重启相机 HAL，重开相机生效，无需重启</span></span>
+    <span style="display:flex;align-items:center;gap:6px"><input class="num" id="numUwExp" type="number" min="0" max="999" step="10" value="910"><span class="sub">ms</span><button class="btn2" id="btnUwExp">应用</button></span></div>
+  <div class="note" id="dUwExpNote">—</div>
+  <div class="row"><span class="n">超广角(0.7x)暗光增益 · ISO 表增益<br><span style="color:var(--dim);font-size:11px">100% = 出厂｜默认 100%｜范围 100–250<br>实测 160% 时 AE 拿曝光换 ISO（910→700ms）且偏红（R/G 2.71，主摄夜景参考 1.75–2.01）；优先不偏色就保持 100%。重开相机生效</span></span>
+    <span style="display:flex;align-items:center;gap:6px"><input class="num" id="numUwIso" type="number" min="100" max="250" step="5" value="100"><span class="sub">%</span><button class="btn2" id="btnUwIso">应用</button></span></div>
+  <div class="note" id="dUwIsoNote">—</div>
   <div class="row"><span class="n">滑动限频（大簇 policy4）</span><select class="sel" id="selScroll">
     <option value="0">关</option>
     <option value="900000">0.9G</option>
@@ -383,21 +392,71 @@ function render(){
   } else {
     cn.innerHTML = '<span style="color:var(--dim)">等待守护挂载：目标 ' + ct + '，当前 ' + (effT === null ? '?' : effT) + '</span>';
   }
-  // sharpen_cut knob: same rule - show what the HAL actually reads, and surface
-  // the mounted/target count so a half-mounted set can't pass as success.
+  // sharpen_level knob: show the tier the HAL actually reads. EFF_SHARPEN is
+  // emitted only when the /odm DB inode equals the generated tier file, so a
+  // failed mount or a stale bind cannot pass as success.
   var sn = $('dShpNote'), si2 = $('numShp');
-  var sc = num(D.CONF_SHARPEN_CUT), effS = num(D.EFF_SHARPEN), ss = D.SHP_STATE || '';
-  if (sc === null) sc = 35;
+  var sc = num(D.CONF_SHARPEN_LVL), effS = num(D.EFF_SHARPEN), ss = D.SHP_STATE || '';
+  if (sc === null) sc = 2;
   if (document.activeElement !== si2) si2.value = sc;
-  var sm = ss.match(/(\d+)\/(\d+)/);
   if (sc === 0) {
-    sn.innerHTML = '<span style="color:var(--dim)">已关闭：主摄按出厂细节回加强度出片</span>';
+    sn.innerHTML = '<span style="color:var(--dim)">已关闭：主摄按出厂 EE 锐度出片</span>';
   } else if (effS === sc) {
-    sn.innerHTML = '<span style="color:var(--ok)">✓ 生效中 降 ' + effS + '%（挂载 ' + (sm ? sm[1] + '/' + sm[2] : '?') + '，重开相机生效）</span>';
-  } else if (ss.indexOf('mount-failed') >= 0) {
-    sn.innerHTML = '<span style="color:var(--warn)">挂载失败：仍为出厂强度' + (sm ? '（' + sm[1] + '/' + sm[2] + '）' : '') + '</span>';
+    sn.innerHTML = '<span style="color:var(--ok)">✓ 生效中 档位 ' + effS + '（重开相机生效）</span>';
+  } else if (ss.indexOf('mount-failed') >= 0 || ss.indexOf('patch-failed') >= 0) {
+    sn.innerHTML = '<span style="color:var(--warn)">挂载/补丁失败：相机仍按出厂锐度</span>';
+  } else if (ss.indexOf('unsupported') >= 0) {
+    sn.innerHTML = '<span style="color:var(--warn)">固件版本不符（出厂库校验失败），未改动</span>';
   } else {
-    sn.innerHTML = '<span style="color:var(--dim)">等待守护挂载：目标 ' + sc + '%，当前 ' + (effS === null ? '出厂' : effS + '%') + '</span>';
+    sn.innerHTML = '<span style="color:var(--dim)">等待守护挂载：目标档位 ' + sc + '，当前 ' + (effS === null ? '出厂' : '档位 ' + effS) + '</span>';
+  }
+  // beauty_cut knob: same rule - show the intensity cut actually live in the
+  // front hwbeauty_params.xml bind-mount (single file, so no mount count).
+  var bnn = $('dBtyNote'), bi2 = $('numBty');
+  var bc = num(D.CONF_BEAUTY_CUT), effB = num(D.EFF_BEAUTY), bs = D.BTY_STATE || '';
+  if (bc === null) bc = 30;
+  if (document.activeElement !== bi2) bi2.value = bc;
+  if (bc === 0) {
+    bnn.innerHTML = '<span style="color:var(--dim)">已关闭：前置按出厂磨皮/美型强度出片</span>';
+  } else if (effB === bc) {
+    bnn.innerHTML = '<span style="color:var(--ok)">✓ 生效中 降 ' + effB + '%（重开相机生效）</span>';
+  } else if (bs.indexOf('mount-failed') >= 0) {
+    bnn.innerHTML = '<span style="color:var(--warn)">挂载失败：仍为出厂强度</span>';
+  } else {
+    bnn.innerHTML = '<span style="color:var(--dim)">等待守护挂载：目标 ' + bc + '%，当前 ' + (effB === null ? '出厂' : effB + '%') + '</span>';
+  }
+  // uw_exp_ms / uw_iso_gain: the two levers the user chose for the 0.7x dark
+  // scene. Show what the HAL actually reads; the default keeps ISO at 100%
+  // because the measured 160% shot traded exposure for gain and went red.
+  var un = $('dUwExpNote'), ui = $('numUwExp');
+  var uin = $('dUwIsoNote'), uii = $('numUwIso');
+  var ue = num(D.CONF_UW_EXP_MS), ug = num(D.CONF_UW_ISO_GAIN);
+  var effUE = num(D.EFF_UW_EXP), effUG = num(D.EFF_UW_ISO), effUF = num(D.EFF_UW_FPS);
+  var uws = D.UW_STATE || '';
+  if (ue === null) ue = 910;
+  if (ug === null) ug = 100;
+  if (document.activeElement !== ui) ui.value = ue;
+  if (document.activeElement !== uii) uii.value = ug;
+  if (ue === 0) {
+    var uwOff = (effUE === 200 && effUG === 100 && effUF === 5);
+    un.innerHTML = uwOff ? '<span style="color:var(--dim)">已关闭：超广按出厂 200ms / ISO 表</span>' :
+      '<span style="color:var(--dim)">等待守护还原：当前 ' + (effUE === null ? '?' : effUE + 'ms') + ' / ' + (effUG === null ? '?' : effUG + '%') + '</span>';
+  } else if (effUE === ue && effUG === ug) {
+    un.innerHTML = '<span style="color:var(--ok)">✓ 生效中 曝光上限 ' + effUE + 'ms · fps 档 ' + (effUF === null ? '?' : effUF) + '（重开相机生效）</span>';
+  } else if (uws.indexOf('mount-failed') >= 0 || uws.indexOf('unsupported') >= 0) {
+    un.innerHTML = '<span style="color:var(--warn)">未生效：' + uws + '</span>';
+  } else {
+    un.innerHTML = '<span style="color:var(--dim)">等待守护挂载：目标 ' + ue + 'ms，当前 ' + (effUE === null ? '?' : effUE + 'ms') + '</span>';
+  }
+  if (ue === 0) {
+    uin.innerHTML = '<span style="color:var(--dim)">长曝关闭时 ISO 增益不生效</span>';
+  } else if (effUG === ug) {
+    uin.innerHTML = ug === 100 ? '<span style="color:var(--ok)">✓ 出厂 ISO 表（不偏色优先）</span>' :
+      '<span style="color:var(--warn)">✓ 生效中 ' + effUG + '%（有偏色/曝光权衡，建议 A/B 后再定）</span>';
+  } else if (uws.indexOf('mount-failed') >= 0 || uws.indexOf('unsupported') >= 0) {
+    uin.innerHTML = '<span style="color:var(--warn)">未生效：' + uws + '</span>';
+  } else {
+    uin.innerHTML = '<span style="color:var(--dim)">等待守护挂载：目标 ' + ug + '%，当前 ' + (effUG === null ? '?' : effUG + '%') + '</span>';
   }
   // per-SIM real signal readout (panel-only: values come from dashboard.sh,
   // which just greps telephony.registry while the panel is polling)
@@ -519,7 +578,7 @@ function start(){
          DC_lvc_IIN:'4500',DC_lvc_MAX:'4500',DC_sc_IIN:'12000',DC_sc_MAX:'12000',DC_hsc_IIN:'14500',DC_hsc_MAX:'14500',
          DC_SC_RES:'58',PC_ICC:'3200000',PC_ICC_MAX:'4000000',PC_AICR:'3000000',
          PC_CV:'4540000',PC_TICC:'3225000',DAEMON:'1',TPOLICY:'1',VER:'demo',
-         CONF_VPN_LOCK:'0',VPN_LOCK_STATE:'idle',CONF_LSP_FIX:'0',LSP_STATE:'',CONF_VOLTE_FIX:'0',VOLTE_STATE:'',CONF_QR_FIX:'0',QR_STATE:'',CONF_SMARTAE_TARGET:'185',CAM_STATE:'on 185',EFF_TARGET:'185',CONF_SHARPEN_CUT:'35',SHP_STATE:'on 35 16/16',EFF_SHARPEN:'35',ADP_SUPPORT:'0',SIG_OPS:'',SIG_TYPES:'',SIG0_LTE:'',SIG1_LTE:'',SIG0_BAND:'',SIG1_BAND:'',SIG0_NR:'',SIG1_NR:'',FCM_STATE:'ok n=2 probe:ok',MCS_GMS:'0',VPN_BYP:'none',VPN_GMS_IN:'0',EXEC_UID:'0'};
+         CONF_VPN_LOCK:'0',VPN_LOCK_STATE:'idle',CONF_LSP_FIX:'0',LSP_STATE:'',CONF_VOLTE_FIX:'0',VOLTE_STATE:'',CONF_QR_FIX:'0',QR_STATE:'',CONF_SMARTAE_TARGET:'185',CAM_STATE:'on 185',EFF_TARGET:'185',CONF_SHARPEN_CUT:'35',SHP_STATE:'on 35 16/16',EFF_SHARPEN:'35',CONF_BEAUTY_CUT:'30',BTY_STATE:'on 30',EFF_BEAUTY:'30',CONF_UW_EXP_MS:'910',CONF_UW_ISO_GAIN:'100',UW_STATE:'on exp=910 iso=100 fps=1',EFF_UW_EXP:'910',EFF_UW_ISO:'100',EFF_UW_FPS:'1',ADP_SUPPORT:'0',SIG_OPS:'',SIG_TYPES:'',SIG0_LTE:'',SIG1_LTE:'',SIG0_BAND:'',SIG1_BAND:'',SIG0_NR:'',SIG1_NR:'',FCM_STATE:'ok n=2 probe:ok',MCS_GMS:'0',VPN_BYP:'none',VPN_GMS_IN:'0',EXEC_UID:'0'};
   } else {
     tick();
     timer = setInterval(function(){ if (!document.hidden) tick(); }, 3000);
@@ -551,13 +610,42 @@ function start(){
   $('numCam').onkeydown = function(e){ if (e.key === 'Enter' || e.keyCode === 13) camApply($('btnCam')); };
   var shpApply = function(btn){
     var el = $('numShp'), v = parseInt(el.value, 10);
-    if (isNaN(v)) { $('dShpNote').innerHTML = '<span style="color:var(--warn)">请输入数字（0 或 1–90）</span>'; return; }
-    if (v < 0) v = 0; if (v > 90) v = 90;
+    if (isNaN(v)) { $('dShpNote').innerHTML = '<span style="color:var(--warn)">请输入档位 0–4</span>'; return; }
+    if (v < 0) v = 0; if (v > 4) v = 4;
     el.value = v;
-    setKey('sharpen_cut', String(v), btn);
+    setKey('sharpen_level', String(v), btn);
   };
   $('btnShp').onclick = function(){ shpApply(this); };
   $('numShp').onkeydown = function(e){ if (e.key === 'Enter' || e.keyCode === 13) shpApply($('btnShp')); };
+  var btyApply = function(btn){
+    var el = $('numBty'), v = parseInt(el.value, 10);
+    if (isNaN(v)) { $('dBtyNote').innerHTML = '<span style="color:var(--warn)">请输入数字（0 或 1–90）</span>'; return; }
+    if (v < 0) v = 0; if (v > 90) v = 90;
+    el.value = v;
+    setKey('beauty_cut', String(v), btn);
+  };
+  $('btnBty').onclick = function(){ btyApply(this); };
+  $('numBty').onkeydown = function(e){ if (e.key === 'Enter' || e.keyCode === 13) btyApply($('btnBty')); };
+  // ultra-wide long exposure / ISO gain: 0 = off, otherwise 150..999 ms; gain
+  // floor is 100 (factory table) so a typo can never darken the AE table.
+  var uwExpApply = function(btn){
+    var el = $('numUwExp'), v = parseInt(el.value, 10);
+    if (isNaN(v)) { $('dUwExpNote').innerHTML = '<span style="color:var(--warn)">请输入数字（0 或 150–999）</span>'; return; }
+    if (v !== 0) v = v < 150 ? 150 : (v > 999 ? 999 : v);
+    el.value = v;
+    setKey('uw_exp_ms', String(v), btn);
+  };
+  $('btnUwExp').onclick = function(){ uwExpApply(this); };
+  $('numUwExp').onkeydown = function(e){ if (e.key === 'Enter' || e.keyCode === 13) uwExpApply($('btnUwExp')); };
+  var uwIsoApply = function(btn){
+    var el = $('numUwIso'), v = parseInt(el.value, 10);
+    if (isNaN(v)) { $('dUwIsoNote').innerHTML = '<span style="color:var(--warn)">请输入数字（100–250）</span>'; return; }
+    if (v < 100) v = 100; if (v > 250) v = 250;
+    el.value = v;
+    setKey('uw_iso_gain', String(v), btn);
+  };
+  $('btnUwIso').onclick = function(){ uwIsoApply(this); };
+  $('numUwIso').onkeydown = function(e){ if (e.key === 'Enter' || e.keyCode === 13) uwIsoApply($('btnUwIso')); };
   $('selScroll').onchange = function(){ setKey('scroll_cap', this.value, this); };
   $('btnPause').onclick = async function(){ await ctl(D.PAUSED === '1' ? 'resume' : 'pause'); tick(); };
   $('btnRestart').onclick = async function(){ var b = this; b.textContent = '…'; await ctl('restart'); setTimeout(function(){ b.textContent = '重启'; tick(); }, 1200); };

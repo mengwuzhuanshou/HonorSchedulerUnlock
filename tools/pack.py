@@ -7,6 +7,7 @@
 # from the working tree (no newline translation).
 #
 #   python tools/pack.py            # -> dist/HonorSchedulerUnlock-<ver>.zip
+import glob
 import os
 import re
 import stat
@@ -23,7 +24,16 @@ FIXED = ["META-INF/com/google/android/update-binary",
          "customize.sh", "module.prop", "action.sh", "post-fs-data.sh",
          "service.sh", "dashboard.sh", "webui_ctl.sh", "uninstall.sh",
          "qrfix/facemaskconfig.xml", "camfix/SmartAE_back_orig.xml",
-         "camfix/sharpen.awk", "webroot/index.html"]
+         "camfix/hwbeauty_front_orig.xml",
+         "camfix/beauty.awk",
+         "webroot/index.html"]
+# EE tuning-DB page patches (v2.2.0 sharpen_level): one .bin/.txt/.sha per tier.
+# Deliberately dynamic so a tier added/removed in ee_patch/ is packaged as-is.
+FIXED += sorted(
+    os.path.relpath(p, ROOT).replace(os.sep, "/")
+    for p in glob.glob(os.path.join(ROOT, "ee_patch", "*"))
+    if os.path.isfile(p)
+)
 
 
 def version():
@@ -50,7 +60,7 @@ def main():
             mode = 0o755 if rel in EXEC else 0o644
             zi = zipfile.ZipInfo(rel, date_time=(2026, 1, 1, 0, 0, 0))
             zi.external_attr = stat.S_IMODE(mode) << 16
-            zi.compress_type = zipfile.ZIP_DEFLATED if rel.endswith((".sh", ".prop", ".html", ".xml", "update-binary")) else zipfile.ZIP_STORED
+            zi.compress_type = zipfile.ZIP_DEFLATED if rel.endswith((".sh", ".prop", ".html", ".xml", ".bin", ".txt", ".sha", "update-binary")) else zipfile.ZIP_STORED
             z.writestr(zi, data)
     print("BUILT", out, os.path.getsize(out), "bytes,", len(FIXED), "entries, version=%s (%d)" % (ver, code))
 

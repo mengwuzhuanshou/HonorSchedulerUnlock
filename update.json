@@ -1,6 +1,6 @@
 {
-  "version": "v2.0.0",
-  "versionCode": 28,
-  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v2.0.0.zip",
-  "changelog": "v2.0.0：新增「相机锐化抑制」数值输入（sharpen_cut，默认降 35%）——主摄 HDR+ 的 RAWNR 细节回加（DetailAddBack 权重）与 lanczos 增强增益是社区「锐化太重」的实际来源（HDR+ 自带的 RAW2YUV/sharpen 出厂即关、DE/CE/DRE 全 bypass），面板输入 0–90（推荐 20–50，0=出厂）。逐模块从 /odm 原文即时重建后 bind mount 16 份后置主摄 hdrp_mc.xml，只动增益列、行内列数不符即整行不改，不改分区不动 dm-verity，重开相机生效。"
+  "version": "v2.2.0",
+  "versionCode": 37,
+  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v2.2.0.zip",
+  "changelog": "v2.2.0：相机锐化旋钮重做为 MTK ISP EE 档位（sharpen_level，0=关/1=×1.25/2=×1.5 默认/3=×2.0/4=×2.5），按 ISO 块同比缩放 ISP_param.db 的 EE 表并以页补丁+bind mount 交付；v2.0.0 的 hdrp_mc.xml 路线实机 A/B 无效，已退役并自动清理。前置自拍美颜旋钮（beauty_cut）仍在修复中：目前只覆盖人像模式读取的主文件，拍照页自拍读取的 hwbeauty_params_lp.xml 尚未纳入，拍照页暂不生效。"
 }

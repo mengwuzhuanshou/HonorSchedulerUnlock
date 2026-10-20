@@ -1,0 +1,292 @@
+<?xml version="1.0" encoding="GB2312"?>
+<HwBeautyParams faceAttr="1" paramVersion="60">
+	<Mode name="Preview">
+		<ParamterDefault><!--for all other females not included in below sets, always needed-->
+			<SkinSoften    > 5 10 20 30 40       45 50 60 70 80</SkinSoften    ><!--10 number means Level1~Level10, same as below-->
+			<SkinToneBright> 5 10 15 20 20       30 40 50 60 70</SkinToneBright>
+			<SkinToneStyle > 0  0  0  0  0        0  0  0  0  0</SkinToneStyle >
+			<LipBeauty     > 0  0  0  0  0        0  0  0  0  0</LipBeauty     >
+			<Blush         > 0  0  0  0  0        0  0  0  0  0</Blush         >
+			<NoseHighlight > 0  0  0  0  0        0  0  0  0  0</NoseHighlight  >
+			<Depouch       > 0  0  0  0  0        0  0  0  0  0</Depouch       >
+			<FaceSlender   > 0  0  0  0  0        0  0  0  0  0</FaceSlender   >
+			<EyeEnlargement> 0  0  0  0  0        0  0  0  0  0</EyeEnlargement>
+			<NoseSlender   > 0  0  0  0  0        0  0  0  0  0</NoseSlender   >
+			<EyebrowDye    > 0  0  0  0  0        0  0  0  0  0</EyebrowDye    >
+		</ParamterDefault>
+		<ParamterSet gender="female" skin="2" age_start="1" age_end="10"><!--You can add, modify or delete ParamterSet as your requirement-->
+			<SkinSoften    > 0  5 10 15 20       25 30 35 40 50</SkinSoften    >
+			<SkinToneBright> 1  3  5  8  10       10 13 15 18 20</SkinToneBright>
+			<SkinToneStyle > 0  0  0  0  0        0  0  0  0  0</SkinToneStyle >
+			<LipBeauty     > 0  0  0  0  0       0  0  0  0  0</LipBeauty     >
+			<Blush         > 0  0  0  0  0       0  0  0  0  0</Blush         >
+			<NoseHighlight > 0  0  0  0  0        0  0  0  0  0</NoseHighlight  >
+			<Depouch       > 0  0  0  0  0        0  0  0  0  0</Depouch       >
+			<FaceSlender   > 1  5  5 10 10       15 15 20 25 30</FaceSlender   >
+			<EyeEnlargement> 0  0  0  0  0       0  0  0  0  0</EyeEnlargement>
+			<NoseSlender   > 0  0  0  0  0       0  0  0  0  0</NoseSlender   >
+			<EyebrowDye    > 0  0  0  0  0       0  0  0  0  0</EyebrowDye    >
+		</ParamterSet>
+		<ParamterSet gender="female" skin="2" age_start="11" age_end="35">
+			<SkinSoften    >10 20 30 40 55       60 70 80 90 100</SkinSoften    >
+			<SkinToneBright>  5 10 15 20 25       30 40 50 60 70</SkinToneBright>
+			<SkinToneStyle > 0  0  0  0  0        0  0  0  0  0</SkinToneStyle >
+			<LipBeauty     >10 20 30 40 50       60 65 70 75 80</LipBeauty     >
+			<Blush         > 5 10 15 18 20       22 25 25 28 30</Blush         >
+			<NoseHighlight >10 20 30 40 50       60 70 75 80 85</NoseHighlight  >
+			<Depouch       >10 20 30 40 50       60 70 75 80 85</Depouch       >
+			<FaceSlender   >15 20 28 35 45       50 60 75 85 95</FaceSlender   >
+			<EyeEnlargement> 5 10 15 20 25       35 40 45 50 55</EyeEnlargement>
+			<NoseSlender   > 1  5 10 15 20       25 25 30 35 40</NoseSlender   >
+			<EyebrowDye    > 0  0  0  0  0        0  0  0  0  0</EyebrowDye    >
+		</ParamterSet>
+		<ParamterSet gender="female" skin="2" age_start="36" age_end="50">
+			<SkinSoften    >10 20 30 35 45       50 55 60 70 80</SkinSoften    >
+			<SkinToneBright>  5 10 15 20 25       30 40 50 60 70</SkinToneBright>
+			<SkinToneStyle > 0  0  0  0  0        0  0  0  0  0</SkinToneStyle >
+			<LipBeauty     >10 20 30 35 40       45 50 55 60 65</LipBeauty     >
+			<Blush         > 5 10 15 18 20       22 25 25 28 30</Blush         >
+			<NoseHighlight >10 20 30 40 50       60 70 75 80 85</NoseHighlight  >
+			<Depouch       > 5 10 20 30 40       50 55 60 70 80</Depouch       >
+			<FaceSlender   >15 20 28 35 40       50 60 65 75 85</FaceSlender   >
+			<EyeEnlargement>10 15 20 25 30       35 40 45 50 55</EyeEnlargement>
+			<NoseSlender   > 1  5 10 15 20       25 25 30 35 40</NoseSlender   >
+			<EyebrowDye    > 0  0  0  0  0        0  0  0  0  0</EyebrowDye    >
+		</ParamterSet>
+		<ParamterSet gender="female" skin="2" age_start="51" age_end="65">
+			<SkinSoften    >10 20 30 35 40       45 50 55 60 65</SkinSoften    >
+			<SkinToneBright> 5 10 15 20 20       25 30 40 50 60</SkinToneBright>
+			<SkinToneStyle > 0  0  0  0  0        0  0  0  0  0</SkinToneStyle >
+			<LipBeauty     >10 20 25 30 30       35 40 40 50 50</LipBeauty     >
+			<Blush         > 5 10 10 15 15       20 20 25 25 25</Blush         >
+			<NoseHighlight >10 20 30 35 40       45 50 55 60 65</NoseHighlight  >
+			<Depouch       > 5 10 20 30 35       35 40 40 50 50</Depouch       >
+			<FaceSlender   >10 15 20 25 30       35 40 45 50 55</FaceSlender   >
+			<EyeEnlargement> 5 10 15 20 25       30 35 40 45 50</EyeEnlargement>
+			<NoseSlender   > 1  5 10 15 15       20 25 30 35 40</NoseSlender   >
+			<EyebrowDye    > 0  0  0  0  0        0  0  0  0  0</EyebrowDye    >
+		</ParamterSet>
+		<ParamterSet gender="female" skin="2" age_start="66" age_end="100">
+			<SkinSoften    > 5 10 20 25 30       35 40 45 50 55</SkinSoften    >
+			<SkinToneBright> 1  5 10 15 15       20 25 30 35 40</SkinToneBright>
+			<SkinToneStyle > 0  0  0  0  0        0  0  0  0  0</SkinToneStyle >
+			<LipBeauty     > 0  0  0  0  0        0  0  0  0  0</LipBeauty     >
+			<Blush         > 0  0  0  0  0        0  0  0  0  0</Blush         >
+			<NoseHighlight > 0  0  0  0  0        0  0  0  0  0</NoseHighlight  >
+			<Depouch       > 5 10 20 30 35       35 40 40 50 50</Depouch       >
+			<FaceSlender   > 5 10 15 20 25       30 35 40 45 50</FaceSlender   >
+			<EyeEnlargement> 0  0  0  0  0       0  0  0  0  0</EyeEnlargement>
+			<NoseSlender   > 0  0  0  0  0       0  0  0  0  0</NoseSlender   >
+			<EyebrowDye    > 0  0  0  0  0       0  0  0  0  0</EyebrowDye    >
+		</ParamterSet>
+	</Mode>
+	<Mode name="Capture">
+		<ParamterDefault><!--for all other females not included in below sets, always needed-->
+			<SkinSoften     > 5 10 15 20 20       30 35 40 50 60</SkinSoften    >
+			<SkinToneBright > 5 10 15 20 20       30 40 50 60 70</SkinToneBright >
+			<SkinToneStyle  > 0  0  0  0  0        0  0  0  0  0</SkinToneStyle  >
+			<LipBeauty      > 0  0  0  0  0        0  0  0  0  0</LipBeauty      >
+			<EyeBrighten    >10 20 25 30 35       40 45 55 60 60</EyeBrighten    >
+			<TeethWhiten    >0  0  0  0  0        0  0  0  0  0</TeethWhiten    >
+			<NoseHighlight  >0  0  0  0  0        0  0  0  0  0</NoseHighlight  >
+			<Depouch        >20 20 20 20 20       30 30 30 30 30</Depouch       >
+			<Deblemish      >100 100 100 100 100  100 100 100 100 100</Deblemish >
+			<RemoveShine    > 0  0  0  0  0        0  0  0  0  0</RemoveShine    >
+			<RemoveShineLcd > 0  0  0  0  0        0  0  0  0  0</RemoveShineLcd >
+			<Blush          > 0  0  0  0  0        0  0  0  0  0</Blush          >
+			<LipGloss       > 0  0  0  0  0        0  0  0  0  0</LipGloss       >
+			<EyebrowSharp   > 0  0  0  0  0        0  0  0  0  0</EyebrowSharp   >
+			<EyebrowSaturate> 0  0  0  0  0        0  0  0  0  0</EyebrowSaturate>
+			<EyebrowDye     >10 20 25 30 40       45 50 55 60 70</EyebrowDye     >
+			<LyingSilkworm  > 0  0  0  0  0        0  0  0  0  0</LyingSilkworm  >
+			<PupilBrighten  > 5 10 15 20 25       25 30 30 35 40</PupilBrighten  >
+			<FaceSlender    >0  0  0  0  0        0  0  0  0  0</FaceSlender   >
+			<EyeEnlargement >10 15 20 25 30       35 40 45 50 55</EyeEnlargement>
+			<NoseSlender    > 0  0  0  0  0        0  0  0  0  0</NoseSlender   >
+			<FaceEdgeSmooth > 0  0  0  0  0        0  0  0  0  0</FaceEdgeSmooth >
+			<Smallhead      > 0  0  0  0  0        0  0  0  0  0</Smallhead      >
+		</ParamterDefault>
+		<ParamterSet gender="female" skin="2" age_start="1" age_end="10"><!--You can add, modify or delete ParamterSet as your requirement-->
+			<SkinSoften     > 0  0  0  5  5        5 10 13 15 20</SkinSoften     >
+			<SkinToneBright > 1  3  5  8  10       10 13 15 18 20</SkinToneBright >
+			<SkinToneStyle  > 0  0  0  0  0        0  0  0  0  0</SkinToneStyle  >
+			<LipBeauty      > 0  0  0  0  0        0  0  0  0  0</LipBeauty      >
+			<EyeBrighten    > 0  0  0  0  0        0  0  0  0  0</EyeBrighten    >
+			<TeethWhiten    > 0  0  0  0  0        0  0  0  0  0</TeethWhiten    >
+			<NoseHighlight  > 0  0  0  0  0        0  0  0  0  0</NoseHighlight  >
+			<Depouch        > 0  0  0  0  0        0  0  0  0  0</Depouch        >
+			<Deblemish      > 0  0  0  0  0        0  0  0  0  0</Deblemish      >
+			<RemoveShine    > 0  0  0  0  0        0  0  0  0  0</RemoveShine    >
+			<RemoveShineLcd > 0  0  0  0  0        0  0  0  0  0</RemoveShineLcd >
+			<Blush          > 5  5  5  5  5       10 10 15 15 15</Blush          >
+			<LipGloss       > 0  0  0  0  0        0  0  0  0  0</LipGloss       >
+			<EyebrowSharp   > 0  0  0  0  0        0  0  0  0  0</EyebrowSharp   >
+			<EyebrowSaturate> 0  0  0  0  0        0  0  0  0  0</EyebrowSaturate>
+			<EyebrowDye     > 0  0  0  0  0        0  0  0  0  0</EyebrowDye     >
+			<LyingSilkworm  > 0  0  0  0  0        0  0  0  0  0</LyingSilkworm  >
+			<PupilBrighten  > 0  0  0  0  0        0  0  0  0  0</PupilBrighten  >
+			<FaceSlender    > 1  5  5 10 10        15 15 20 25 30</FaceSlender    >
+			<EyeEnlargement > 0  0  0  0  0        0  0  0  0  0</EyeEnlargement >
+			<NoseSlender    > 0  0  0  0  0        0  0  0  0  0</NoseSlender    >
+			<FaceEdgeSmooth > 0  0  0  0  0        0  0  0  0  0</FaceEdgeSmooth >
+			<Smallhead      > 0  0  0  0  0        0  0  0  0  0</Smallhead      >
+		</ParamterSet>
+		<ParamterSet gender="female" skin="2" age_start="11" age_end="35">
+			<SkinSoften     > 5 10 20 30 40       50 60 70 80 90</SkinSoften    >
+			<SkinToneBright > 5 10 15 20 25       30 40 50 60 70</SkinToneBright >
+			<SkinToneStyle  > 0  0  0  0  0        0  0  0  0  0</SkinToneStyle  >
+			<LipBeauty      >10 20 30 45 60       65 70 75 80 90</LipBeauty      >
+			<EyeBrighten    >10 20 20 30 30       35 40 45 50 60</EyeBrighten    >
+			<TeethWhiten    >10 10 20 20 20       30 30 30 30 30</TeethWhiten    >
+			<NoseHighlight  >10 20 30 40 50       60 70 75 80 85</NoseHighlight  >
+			<Depouch        >10 20 30 40 50       60 70 75 80 85</Depouch       >
+			<Deblemish      >60 70 80 90 100  100 100 100 100 100</Deblemish >
+			<RemoveShine    > 0  0  0  0  0        0  0  0  0  0</RemoveShine    >
+			<RemoveShineLcd > 0  0  0  0  0        0  0  0  0  0</RemoveShineLcd >
+			<Blush          > 5 10 15 18 20       22 25 25 28 30</Blush          >
+			<LipGloss       > 0  0  0  0  0        0  0  0  0  0</LipGloss       >
+			<EyebrowSharp   > 0  0  0  0  0        0  0  0  0  0</EyebrowSharp   >
+			<EyebrowSaturate> 0  0  0  0  0        0  0  0  0  0</EyebrowSaturate>
+			<EyebrowDye     >10 20 25 30 40       45 50 55 60 70</EyebrowDye     >
+			<LyingSilkworm  >20 20 20 30 30       30 40 40 50 50</LyingSilkworm  >
+			<PupilBrighten  > 5 10 15 20 25       25 30 30 35 40</PupilBrighten  >
+			<FaceSlender    >15 20 30 40 50       60 70 75 85 95</FaceSlender   >
+			<EyeEnlargement > 5 10 15 20 20       25 30 35 40 50</EyeEnlargement>
+			<NoseSlender    > 5 10 15 20 20       25 30 30 35 40</NoseSlender   >
+			<FaceEdgeSmooth > 5 10 20 30 40       50 60 70 80 90</FaceEdgeSmooth >
+			<Smallhead      > 0  5  5 10 10       15 15 20 25 30</Smallhead      >
+		</ParamterSet>
+		<ParamterSet gender="female" skin="2" age_start="36" age_end="50">
+			<SkinSoften     > 5 10 20 30 40       50 60 70 80 90</SkinSoften    >
+			<SkinToneBright > 5 10 15 20 25       30 40 50 60 70</SkinToneBright >
+			<SkinToneStyle  > 0  0  0  0  0        0  0  0  0  0</SkinToneStyle  >
+			<LipBeauty      > 5 10 20 30 40       50 55 60 65 70</LipBeauty      >
+			<EyeBrighten    >10 20 20 30 30       35 40 45 50 60</EyeBrighten    >
+			<TeethWhiten    >10 10 20 20 20       30 30 30 30 30</TeethWhiten    >
+			<NoseHighlight  >10 20 30 40 50       60 70 75 80 85</NoseHighlight  >
+			<Depouch        > 5 10 20 30 40       50 55 60 70 80</Depouch       >
+			<Deblemish      >60 70 80 90 100  100 100 100 100 100</Deblemish >
+			<RemoveShine    > 0  0  0  0  0        0  0  0  0  0</RemoveShine    >
+			<RemoveShineLcd > 0  0  0  0  0        0  0  0  0  0</RemoveShineLcd >
+			<Blush          > 5 10 15 18 20       22 25 25 28 30</Blush          >
+			<LipGloss       > 0  0  0  0  0        0  0  0  0  0</LipGloss       >
+			<EyebrowSharp   > 0  0  0  0  0        0  0  0  0  0</EyebrowSharp   >
+			<EyebrowSaturate> 0  0  0  0  0        0  0  0  0  0</EyebrowSaturate>
+			<EyebrowDye     >10 20 25 30 40       45 50 55 60 70</EyebrowDye     >
+			<LyingSilkworm  >20 20 20 30 30       30 40 40 50 50</LyingSilkworm  >
+			<PupilBrighten  > 5 10 15 20 25       25 30 30 35 40</PupilBrighten  >
+			<FaceSlender    >15 20 28 35 40       50 60 65 75 85</FaceSlender   >
+			<EyeEnlargement > 5 10 15 20 20       25 30 35 40 50</EyeEnlargement>
+			<NoseSlender    > 5 10 15 20 20       25 30 30 35 40</NoseSlender   >
+			<FaceEdgeSmooth > 5 10 20 30 40       50 60 70 80 90</FaceEdgeSmooth >
+			<Smallhead      > 0  5  5 10 10       15 15 20 25 30</Smallhead      >
+		</ParamterSet>
+		<ParamterSet gender="female" skin="2" age_start="51" age_end="65">
+			<SkinSoften     > 5 10 15 20 25       30 35 40 45 50 </SkinSoften    >
+			<SkinToneBright > 5 10 15 20 20       25 30 40 50 60 </SkinToneBright >
+			<SkinToneStyle  > 0  0  0  0  0        0  0  0  0  0</SkinToneStyle  >
+			<LipBeauty      >10 15 20 25 30       35 40 45 50 50</LipBeauty      >
+			<EyeBrighten    > 5 10 15 25 30       40 50 50 50 50</EyeBrighten    >
+			<TeethWhiten    >10 10 10 10 10       20 20 30 30 30</TeethWhiten    >
+			<NoseHighlight  > 5 15 20 25 30       30 30 30 30 30</NoseHighlight  >
+			<Depouch        > 5 10 20 30 35       35 40 40 50 50</Depouch       >
+			<Deblemish      >60 70 80 90 100  100 100 100 100 100</Deblemish >
+			<RemoveShine    > 0  0  0  0  0        0  0  0  0  0</RemoveShine    >
+			<RemoveShineLcd > 0  0  0  0  0        0  0  0  0  0</RemoveShineLcd >
+			<Blush          > 5 10 10 10 10       10 10 10 10 10</Blush          >
+			<LipGloss       > 0  0  0  0  0        0  0  0  0  0</LipGloss       >
+			<EyebrowSharp   > 0  0  0  0  0        0  0  0  0  0</EyebrowSharp   >
+			<EyebrowSaturate> 0  0  0  0  0        0  0  0  0  0</EyebrowSaturate>
+			<EyebrowDye     > 0  0  0  0  0        0  0  0  0  0</EyebrowDye     >
+			<LyingSilkworm  >0  0  0  0  0        0  0  0  0  0</LyingSilkworm  >
+			<PupilBrighten  >10 15 20 25 30       30 30 30 30 30</PupilBrighten  >
+			<FaceSlender    >15 20 25 30 30       40 45 50 55 60</FaceSlender    >
+			<EyeEnlargement >5 10 15 20 20       25 30 30 35 40</EyeEnlargement >
+			<NoseSlender    >5 10 15 20 20       25 30 30 35 40</NoseSlender    >
+			<FaceEdgeSmooth >5 10 15 20 25        30 35 40 45 50</FaceEdgeSmooth >
+			<Smallhead      > 0  0  0  0  0        0  0  0  0  0</Smallhead      >
+		</ParamterSet>
+		<ParamterSet gender="female" skin="2" age_start="66" age_end="100">
+			<SkinSoften     > 5 10 15 20 20       25 30 35 40 45</SkinSoften    >
+			<SkinToneBright > 1  5 10 15 15       20 25 30 35 40</SkinToneBright>
+			<SkinToneStyle  > 0  0  0  0  0        0  0  0  0  0</SkinToneStyle  >
+			<LipBeauty      > 0  0  0  0  0        0  0  0  0  0</LipBeauty      >
+			<EyeBrighten    > 0  0  0  0  0        0  0  0  0  0</EyeBrighten    >
+			<TeethWhiten    > 0  0  0  0  0        0  0  0  0  0</TeethWhiten    >
+			<NoseHighlight  > 0  0  0  0  0        0  0  0  0  0</NoseHighlight  >
+			<Depouch        > 0  0  0  0  0        0  0  0  0  0</Depouch        >
+			<Deblemish      > 0  0  0  0  0        0  0  0  0  0</Deblemish      >
+			<RemoveShine    > 0  0  0  0  0        0  0  0  0  0</RemoveShine    >
+			<RemoveShineLcd > 0  0  0  0  0        0  0  0  0  0</RemoveShineLcd >
+			<Blush          > 0  0  0  0  0        0  0  0  0  0</Blush          >
+			<LipGloss       > 0  0  0  0  0        0  0  0  0  0</LipGloss       >
+			<EyebrowSharp   > 0  0  0  0  0        0  0  0  0  0</EyebrowSharp   >
+			<EyebrowSaturate> 0  0  0  0  0        0  0  0  0  0</EyebrowSaturate>
+			<EyebrowDye     > 0  0  0  0  0        0  0  0  0  0</EyebrowDye     >
+			<LyingSilkworm  > 0  0  0  0  0        0  0  0  0  0</LyingSilkworm  >
+			<PupilBrighten  > 0  0  0  0  0        0  0  0  0  0</PupilBrighten  >
+			<FaceSlender    > 5  5 10 15 20       20 25 30 35 40</FaceSlender    >
+			<EyeEnlargement > 0  0  0  0  0        0  0  0  0  0</EyeEnlargement >
+			<NoseSlender    > 0  0  0  0  0        0  0  0  0  0</NoseSlender    >
+			<FaceEdgeSmooth > 0  0  0  0  0        0  0  0  0  0</FaceEdgeSmooth >
+			<Smallhead      > 0  0  0  0  0        0  0  0  0  0</Smallhead      >
+		</ParamterSet>
+	</Mode>
+	<Mode name="BeautyRatio">
+		<GenderRatio gender="male" preview_ratio="1">
+			<SkinSoften     >0.3  0.3  0.3  0.3  0.3       0.4  0.4  0.5  0.5  0.6</SkinSoften     ><!--10 float means Level1~Level10 ratio for male, same as below-->
+			<SkinToneBright >0.3  0.3  0.3  0.4  0.4       0.5  0.5  0.6  0.6  0.6</SkinToneBright >
+			<SkinToneStyle  >0.0  0.0  0.0  0.0  0.0       0.0  0.0  0.0  0.0  0.0</SkinToneStyle  >
+			<LipBeauty      >0.08 0.08 0.08 0.08 0.08      0.08 0.08 0.08 0.08 0.08</LipBeauty>
+			<EyeBrighten    >0.7  0.7  0.7  0.7  0.7       0.7  0.7  0.7  0.7  0.7</EyeBrighten    >
+			<TeethWhiten    >0.7  0.7  0.7  0.7  0.7       0.7  0.7  0.8  0.9  1.0</TeethWhiten    >
+			<NoseHighlight  >0.5  0.5  0.5  0.5  0.5       0.5  0.5  0.5  0.5  0.5</NoseHighlight  >
+			<Depouch        >1.0  1.0  1.0  1.0  1.0       1.0  1.0  1.0  1.0  1.0</Depouch        >
+			<Deblemish      >0.2  0.3  0.4  0.5  0.6       0.7  0.8  0.8  0.9  1.0</Deblemish      >
+			<RemoveShine    >0.0  0.0  0.0  0.0  0.0       0.0  0.0  0.0  0.0  0.0</RemoveShine    >
+			<Blush          >0.0  0.0  0.0  0.0  0.0       0.0  0.0  0.0  0.0  0.0</Blush          >
+			<LipGloss       >0.0  0.0  0.0  0.0  0.0       0.0  0.0  0.0  0.0  0.0</LipGloss       >
+			<EyebrowSharp   >0.0  0.0  0.0  0.0  0.0       0.0  0.0  0.0  0.0  0.0</EyebrowSharp   >
+			<EyebrowSaturate>0.0  0.0  0.0  0.0  0.0       0.0  0.0  0.0  0.0  0.0</EyebrowSaturate>
+			<EyebrowDye     >1.0  1.0  1.0  1.0  1.0       1.1  1.1  1.1  1.2  1.2</EyebrowDye     >
+			<LyingSilkworm  >0.0  0.0  0.0  0.0  0.0       0.0  0.0  0.0  0.0  0.0</LyingSilkworm  >
+			<PupilBrighten  >0.7  0.7  0.7  0.7  0.8       0.8  0.8  0.8  0.9  1.0</PupilBrighten  >
+			<FaceSlender    >0.8  0.8  0.8  0.8  0.8       0.8  0.8  0.8  0.8  0.8</FaceSlender    ><!--5 float means Level1~Level5 ratio for male, same as below-->
+			<EyeEnlargement >0.7  0.7  0.7  0.7  0.7       0.7  0.7  0.7  0.7  0.7</EyeEnlargement >
+			<NoseSlender    >0.8  0.8  0.8  0.8  0.8       0.8  0.8  0.8  0.8  0.8</NoseSlender    >
+			<FaceEdgeSmooth >0.0  0.0  0.0  0.0  0.0       0.1  0.2  0.3  0.4  0.5</FaceEdgeSmooth >
+			<Smallhead      >0.5  0.5  0.5  0.5  0.5       0.5  0.5  0.5  0.5  0.5</Smallhead      >
+
+			<Preview_SkinSoften    >0.4 0.5 0.5 0.5 0.6    0.6  0.7  0.7  0.8  0.8</Preview_SkinSoften    >
+			<Preview_SkinToneBright>0.3 0.3 0.3 0.4 0.4    0.5  0.5  0.6  0.6  0.6</Preview_SkinToneBright>
+			<Preview_SkinToneStyle >0.0 0.0 0.0 0.0 0.0    0.0  0.0  0.0  0.0  0.0</Preview_SkinToneStyle >
+			<Preview_LipBeauty     >0.0 0.0 0.0 0.0 0.0    0.0  0.0  0.0  0.0  0.0</Preview_LipBeauty >
+			<Preview_Blush         >0.0 0.0 0.0 0.0 0.0    0.0  0.0  0.0  0.0  0.0</Preview_Blush         >
+			<Preview_NoseHighlight >0.8 0.8 0.8 0.8 0.8    0.8  0.8  0.8  0.8  0.8</Preview_NoseHighlight    >
+			<Preview_Depouch       >0.8 0.8 0.8 0.8 0.8    0.8  0.8  0.8  0.8  0.8</Preview_Depouch    >
+			<Preview_FaceSlender   >0.8 0.8 0.8 0.8 0.8        0.8 0.8 0.8 0.8 0.8</Preview_FaceSlender   >
+			<Preview_EyeEnlargement>0.7 0.7 0.7 0.7 0.7        0.7 0.7 0.7 0.7 0.7</Preview_EyeEnlargement>
+			<Preview_NoseSlender   >0.7 0.7 0.7 0.7 0.7        0.7 0.7 0.7 0.7 0.7</Preview_NoseSlender>
+			<Preview_EyeBrowDye    >0.0 0.0 0.0 0.0 0.0      0.0  0.0  0.0  0.0  0.0</Preview_EyeBrowDye>
+		</GenderRatio>
+		<SkinQualityRatio>0.9 1.0 1.2 1.3 1.4</SkinQualityRatio><!--5 float means SkinSoften ratio for SkinQuality 1~5-->
+		<EnvLumaRatio><!--1,luma must be sorted fron small to big; 2,you can add&modify&delete level as you want-->
+			<EnvLumaRatioSet>10  0.7</EnvLumaRatioSet><!--<=luma, SkinSoften ratio to multi-->
+			<EnvLumaRatioSet>50  0.9</EnvLumaRatioSet>
+			<EnvLumaRatioSet>85  1.0</EnvLumaRatioSet>
+			<EnvLumaRatioSet>150 0.9</EnvLumaRatioSet>
+		</EnvLumaRatio>
+	</Mode>
+	<Mode name="SpecificBeauty">
+		<SkinTone weight="60">
+			<ToneSet>191 152 108</ToneSet><!--3 number means R G B-->
+			<ToneSet>233 187 151</ToneSet>
+			<ToneSet>237 205 163</ToneSet>
+			<ToneSet>247 215 179</ToneSet>
+			<ToneSet>254 230 207</ToneSet>
+			<ToneSet>246 203 207</ToneSet>
+			<ToneSet>252 222 221</ToneSet>
+			<ToneSet>247 226 209</ToneSet>
+		</SkinTone>
+	</Mode>
+</HwBeautyParams>
