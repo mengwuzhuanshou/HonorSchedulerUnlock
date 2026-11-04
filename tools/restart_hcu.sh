@@ -1,12 +1,12 @@
 #!/system/bin/sh
 echo ==SYNTAX==
 sh -n /data/local/tmp/fgmod/service.sh && echo SYNTAX_OK || echo SYNTAX_FAIL
-[ -f /data/adb/honor_charge_unlock.pid ] && kill -9 $(cat /data/adb/honor_charge_unlock.pid) 2>/dev/null
+[ -f /data/adb/honor_charge_unlock/pid ] && kill -9 $(cat /data/adb/honor_charge_unlock/pid) 2>/dev/null
 pkill -f [h]onor_charge_unlock/service.sh 2>/dev/null
 pkill -f [A]ctivityManager:I 2>/dev/null
 pkill -f [a]m_proc_start 2>/dev/null
 for p in $(pgrep -f [f]reqgov.sh); do kill -9 $p 2>/dev/null; done
-rm -f /data/adb/honor_charge_unlock.pid /data/local/tmp/.freqgov_tick
+rm -f /data/adb/honor_charge_unlock/pid /data/local/tmp/.freqgov_tick
 echo freqgov_launch_removed > /dev/null
 rm -rf /data/adb/modules/freqgov_launch
 cp /data/local/tmp/fgmod/service.sh /data/adb/modules/honor_charge_unlock/service.sh
@@ -29,5 +29,5 @@ C4=/sys/devices/system/cpu/cpufreq/policy4/scaling_cur_freq
 X4=/sys/devices/system/cpu/cpufreq/policy4/scaling_max_freq
 for i in 1 2 3 4 5 6 7 8; do echo p7=$(cat $C7)/$(cat $X7) p4=$(cat $C4)/$(cat $X4); sleep 0.3; done
 echo ==LOGLINE==
-tail -3 /data/adb/honor_charge_unlock.log 2>/dev/null
+tail -3 /data/adb/honor_charge_unlock/log 2>/dev/null
 echo ALL_DONE

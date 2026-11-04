@@ -1,6 +1,6 @@
 {
-  "version": "v2.2.0",
-  "versionCode": 37,
-  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v2.2.0.zip",
-  "changelog": "v2.2.0：相机锐化旋钮重做为 MTK ISP EE 档位（sharpen_level，0=关/1=×1.25/2=×1.5 默认/3=×2.0/4=×2.5），按 ISO 块同比缩放 ISP_param.db 的 EE 表并以页补丁+bind mount 交付；v2.0.0 的 hdrp_mc.xml 路线实机 A/B 无效，已退役并自动清理。前置自拍美颜旋钮（beauty_cut）仍在修复中：目前只覆盖人像模式读取的主文件，拍照页自拍读取的 hwbeauty_params_lp.xml 尚未纳入，拍照页暂不生效。"
+  "version": "v2.3.1",
+  "versionCode": 39,
+  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v2.3.1.zip",
+  "changelog": "v2.3.1（相对已发布的 v2.2.0 的全部变化）\n\n1. 第三方桌面解锁（thirdparty_home，默认关，重启生效）：不用 lsp_fix 也能把 Niagara 这类桌面设成默认——国行只在 ro.build.characteristics 为 default/tablet 时把 android.software.home_screen 特性位报成「不支持」，本选项在 zygote 之前把 characteristics 临时写成 phone，让 system_server 的静态终值记成「支持」，随即还原原值；locale 与区域身份一律不动。\n2. 面板卡顿修复：采集器改为一个 awk 进程一次读完全部节点（单轮 1.9 秒 → 0.25 秒），并分 quick/full 两档——每 3 秒 quick（充电 + 配置回显 + 相机生效值），每 ~15 秒 full（另加信号/VPN/eSIM 这类开机才变的 binder 读数）；full 只在主页在屏幕时才跑、相机页永远 quick、面板切后台一律不采集；旋钮输入框拿到焦点期间暂停采集，点「应用」后强制回显一次，所以点输入框和点应用都不再等采集。\n3. 相机选项独立成第二页（底栏主页/相机切换），并把区域身份、第三方桌面、VoLTE 三项在面板里的长段说明删掉，说明统一只在 README。\n4. 模块状态文件从 /data/adb 顶层收进 /data/adb/honor_charge_unlock 单一目录（旧位置自动迁移）；另修：熄屏时的 iin_thermal 写入被内核拒绝、每 3 秒刷一条失败日志，改为不写；前置美颜降幅同时覆盖人像页与拍照页两份文件。\n"
 }

@@ -16,15 +16,17 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXEC = {"META-INF/com/google/android/update-binary", "customize.sh", "action.sh",
         "post-fs-data.sh", "service.sh", "dashboard.sh", "webui_ctl.sh",
-        "uninstall.sh"}
-# Byte-exact payloads: the shipped camera/QR override files must keep their
+        "tph_restore.sh", "uninstall.sh", "eidfix/apply.sh", "state.sh"}# Byte-exact payloads: the shipped camera/QR override files must keep their
 # original CRLF/encoding, so they are never rewritten by an editor round-trip.
 FIXED = ["META-INF/com/google/android/update-binary",
          "META-INF/com/google/android/updater-binary",
          "customize.sh", "module.prop", "action.sh", "post-fs-data.sh",
-         "service.sh", "dashboard.sh", "webui_ctl.sh", "uninstall.sh",
+         "service.sh", "dashboard.sh", "webui_ctl.sh", "tph_restore.sh",
+         "uninstall.sh", "state.sh",
+         "eidfix/apply.sh", "eidfix/patch.bin",
          "qrfix/facemaskconfig.xml", "camfix/SmartAE_back_orig.xml",
          "camfix/hwbeauty_front_orig.xml",
+         "camfix/hwbeauty_front_lp_orig.xml",
          "camfix/beauty.awk",
          "webroot/index.html"]
 # EE tuning-DB page patches (v2.2.0 sharpen_level): one .bin/.txt/.sha per tier.

@@ -17,7 +17,8 @@ set_perm "$MODPATH/action.sh" 0 0 0755
 set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
 
 ui_print "- 守护进程将在开机完成后自动运行"
-ui_print "- 配置文件: /data/adb/honor_charge_unlock.conf"
-ui_print "- 日志(需 verbose=1): /data/adb/honor_charge_unlock.log"
+ui_print "- 状态目录: /data/adb/honor_charge_unlock/"
+ui_print "- 配置文件: /data/adb/honor_charge_unlock/conf"
+ui_print "- 日志(需 verbose=1): /data/adb/honor_charge_unlock/log"
 ui_print "- 亮屏/全时段充电解锁已启用"
 ui_print "- WebUI 仪表盘: KernelSU 管理器 -> 本模块 -> WebUI"

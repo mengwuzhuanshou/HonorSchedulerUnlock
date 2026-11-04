@@ -1,9 +1,11 @@
 #!/system/bin/sh
 # Honor Charge Unlock - WebUI control bridge (called from webroot JS via ksu.exec)
 # usage: webui_ctl.sh set <key> <value> | pause | resume | restart
-CONF=/data/adb/honor_charge_unlock.conf
 MODDIR=/data/adb/modules/honor_charge_unlock
-PIDF=/data/adb/honor_charge_unlock.pid
+. "$MODDIR/state.sh"
+st_init
+CONF=$ST/conf
+PIDF=$ST/pid
 
 do_restart() {
   [ -f "$PIDF" ] && kill -9 "$(cat $PIDF)" 2>/dev/null
@@ -19,8 +21,10 @@ case "$1" in
   set)
     k=$2; v=$3
     case "$k" in
-      screen_on_unlock|unlock_when_screen_off|launch_boost|disable_preload|fcm_unlock|region_bypass|vpn_lock|lsp_fix|volte_fix|qr_fix)
+      screen_on_unlock|unlock_when_screen_off|launch_boost|disable_preload|fcm_unlock|vpn_lock|lsp_fix|thirdparty_home|volte_fix|qr_fix|eid_guard)
         case "$v" in 0|1) ;; *) echo "ERR bad value"; exit 1 ;; esac ;;
+      region_mode)
+        case "$v" in default|cn|overseas) ;; *) echo "ERR bad value"; exit 1 ;; esac ;;
       smartae_target)
         # rear-main AE luma target: 0 = off, sane band 100..250 (factory 200)
         case "$v" in ""|*[!0-9]*) echo "ERR bad value"; exit 1 ;; esac
@@ -60,10 +64,10 @@ case "$1" in
     echo "OK $k=$v daemon reloading"
     ;;
   pause)
-    touch /data/adb/honor_charge_unlock.paused
+    touch $ST/paused
     echo "OK paused" ;;
   resume)
-    rm -f /data/adb/honor_charge_unlock.paused
+    rm -f $ST/paused
     echo "OK resumed" ;;
   restart)
     do_restart

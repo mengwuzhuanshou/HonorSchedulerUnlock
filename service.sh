@@ -1,11 +1,14 @@
 #!/system/bin/sh
 # Honor Charge Unlock daemon - KSU/Magisk compatible
-# Removes the OS screen-on charging power cap by resetting direct-charge
-# iin_thermal limits (the charge FW recomputes them to its max when set to 0).
+# Votes the input-current lanes (interface/iin_limit) up to max_iin against the
+# OS's own thermal cap. The node grammar - and why the vote has to be released
+# the way it is - are documented at do_unlock/iface_snapshot below.
 MODDIR=${0%/*}
-CONF=/data/adb/honor_charge_unlock.conf
-LOG=/data/adb/honor_charge_unlock.log
-PIDF=/data/adb/honor_charge_unlock.pid
+. "$MODDIR/state.sh"
+st_init
+CONF=$ST/conf
+LOG=$ST/log
+PIDF=$ST/pid
 
 BATT_UE=/sys/class/power_supply/battery/uevent
 IFACE=/sys/class/hw_power/interface
@@ -17,12 +20,22 @@ unlock_when_screen_off=1
 poll_interval=0.3
 temp_guard=0
 protocol_poke=1
-include_lvc=1
 verbose=0
-# explicit iin_thermal value written each cycle; the kernel clamps it to the
-# per-path temp_para row on write (12000/14500 below 44C), so a large value
-# is safe and takes effect instantly (no recompute delay like write-0)
+# mA we vote for every unlocked lane. The kernel parser wants a specific
+# grammar per node family (see do_unlock), and v2.2.0 had it wrong. A large
+# number is safe:
+# the kernel registry min-aggregates every user's vote and the adapter contract
+# caps below it - thermal dcp 3000/4000 on a 21V/4A head still served
+# primary_chg/input_current_limit 2000000.
 max_iin=20000
+# lanes re-voted on interface/iin_limit. Only lanes that ACCEPT a vote above
+# their own ceiling are worth listing: measured per lane (2026-11-02), dcp keeps
+# 20000, while lvc/sc/hsc hold at their temp_para row (4500/12000/14500) whatever
+# is written - voting those three only buys log lines. `dcp` is the lane a
+# BC12/PPS head is bound by (it feeds charge_data/iin_rt_current and the
+# charger-IC AICR) and is the one v2.2.0 never voted. Setting this empty means
+# the module writes no input-current vote at all.
+iface_lanes="dcp"
 
 if [ ! -f "$CONF" ]; then
   cat > "$CONF" <<EOF
@@ -35,14 +48,12 @@ unlock_when_screen_off=1
 # 0.3s keeps the unlocked value up ~90% of the time
 poll_interval=0.3
 # pause unlocking when battery temp >= this (degC*10). 0 disables the guard.
-# NOTE: the kernel clamps iin_thermal to its own temp_para table anyway
-# (12000/14500 below 44C, 6000 at 44-45C, 1700 at 45-50C, 0 above 50C),
-# so this guard is only extra margin on top of that in-kernel ladder.
+# When it trips, the daemon now hands the lanes back (do_release writes the
+# values it found before taking over), so the vendor temp_para ladder serves
+# in full whenever we are not the one voting.
 temp_guard=0
 # try poking protocol enable nodes (pd/hvc/hsc) on boot and charger plug
 protocol_poke=1
-# include the LVC path (direct_charger) besides SCP/HSC(UFCS)
-include_lvc=1
 # launch boost v2: pin min=max on all clusters via perfserv_freq QoS votes
 # for the launch window (ends at ActivityManager "Displayed" first frame or
 # launch_boost_ms timeout, whichever first). Renewal-dominant: the proc write
@@ -76,10 +87,13 @@ fcm_keepalive=1
 fcm_grace_keeper=1
 # keep Settings.Secure google_service_status=1 (google components enabled)
 fcm_gms_on=1
-# optb region bypass (v1.9.2): flip msc.config.optb at post-fs-data so all
-# china-rom google gates arm as oversea (probe/fuse/uid-firewall/iaware all
-# inert). Overseas use only: changes market/COTA/OTA region identity.
-region_bypass=0
+# region identity (v2.2.1, was the region_bypass on/off switch): post-fs-data
+# pins BOTH region levers - msc.config.optb and ro.product.locale.* - before
+# zygote, so the static-final gates latch the chosen identity for the whole
+# boot. default = never touch either (stock per-boot values).
+#   cn       -> optb 156 + zh/CN  (pin the China-market identity)
+#   overseas -> optb 392 + en/US  (China-market gates stay disarmed)
+region_mode=default
 # vpn_lock (v1.9.3): GMS MCS unwraps "bypassable" VPNs and direct-connects
 # mtalk.google.com (GMS design, no internal flag - see docs/FCM通路逆向笔记.md
 # §15). While a VPN tunnel is up, re-point the system's always-on VPN at the
@@ -97,6 +111,18 @@ vpn_lock=0
 # boot); this daemon restores zh-CN a few seconds after boot_completed.
 # Needs LSPosed v2.2.0+ (Zygisk Next). Takes effect after a reboot.
 lsp_fix=0
+# thirdparty_home (v2.3.0): allow a third-party launcher (e.g. Niagara) to be set
+# as the default home without turning lsp_fix on. Honor has two gates, both in
+# system_server: (1) PackageManagerService reports
+# android.software.home_screen as unsupported when ro.product.locale.region is CN
+# and ro.build.characteristics is "default"/"tablet" (static-final latch), and
+# (2) the AntiMal launcher check forwards to the system manager engine, which
+# allows as soon as that feature is true. post-fs-data masks ONLY
+# ro.build.characteristics to "phone" for the pre-zygote window; locale/region
+# are left alone, so this is independent of lsp_fix and region_mode. The daemon
+# restores the stock value as soon as the feature reads true (early, so the
+# display-engine capsules are not affected). Takes effect after a reboot.
+thirdparty_home=0
 # volte_fix (v1.9.6): CN ROM ships its telephony APN DB without a type=ims
 # entry for many carriers (au/KDDI 44054 here; overseas VoLTE-only networks,
 # but also domestic carriers whose ims row the ROM omits - carrier-agnostic).
@@ -120,6 +146,14 @@ volte_radio_cycle=1
 # panel (webui_ctl restarts the daemon). No partition write, dm-verity
 # untouched, off = plain umount. Default on: user-verified sharper scans.
 qr_fix=1
+# eid_guard (v2.2.2): the eSIM EID-mismatch power-down bypass (the slot-2
+# "当前使用的非法 eSIM 无法与设备匹配，已将该卡禁用" dialog). IN THIS MODULE, no
+# extra LSPosed APK: an 8-byte splice makes native getOeminfoEid() return empty,
+# which is one of the three ways checkCardEid() decides not to forbid.
+# OFF BY DEFAULT because that same getter also feeds the activation-code path:
+# with the guard on, adding a domestic-carrier eSIM by activation code fails
+# until the switch is turned off and the phone is rebooted.
+eid_guard=0
 # smartae_target (v1.9.9): rear-main AE luma target, the exposure knob the
 # community asks for (reports: 过曝 / 高光压不住). Factory 200 and IDENTICAL in
 # all six smartae variants (/odm/etc/camera/smartae/back{,/aperture,/tele,/wide}
@@ -174,10 +208,11 @@ sharpen_level=2
 #   30 = default   10-50 = sane band (10 subtle, 50 clearly more natural)
 #   above ~60 the slim/enlarge pullback is strong enough that face shape reads
 #   wider/less-corrected than users expect, and skin texture starts showing.
-# Scope: one bind-mount, front camera only (rear/back modules untouched). Known
-# gap: the filename follows cameraSceneMode - portrait (23) reads this file, but
-# photo-mode selfie (scene 0) reads hwbeauty_params_lp.xml, which is not bound
-# here, so this knob does not affect photo-page selfies yet.
+# Scope: two bind-mounts, front camera only (rear/back modules untouched). The
+# engine chooses the file by styleMode: photo-page selfie (styleMode 0) reads
+# hwbeauty_params_lp.xml, 人像 and the other styles read hwbeauty_params.xml, so
+# both are bound with the same transform (the photo-page gap this closes was
+# first written up as a known gap in v2.0.1).
 # Same stateless umount->awk-transform->bind-mount delivery as the other camfix
 # knobs: no partition write, dm-verity untouched, lands on reopening the camera,
 # off = plain umount. Default 30.
@@ -219,8 +254,8 @@ conf_add unlock_when_screen_off 1
 conf_add poll_interval 0.3
 conf_add temp_guard 0
 conf_add protocol_poke 1
-conf_add include_lvc 1
 conf_add max_iin 20000
+conf_add iface_lanes "dcp"
 conf_add launch_boost 1
 conf_add launch_boost_ms 2000
 conf_add scroll_cap 800000
@@ -231,12 +266,21 @@ conf_add fcm_probe_urls "http://www.baidu.com,http://www.qq.com"
 conf_add fcm_keepalive 1
 conf_add fcm_grace_keeper 1
 conf_add fcm_gms_on 1
-conf_add region_bypass 0
+# v2.2.1: the region_bypass on/off switch became the region_mode tri-state.
+# Carry an explicit "on" over to "overseas"; anything else starts at default.
+if ! grep -q '^region_mode=' "$CONF" 2>/dev/null; then
+  case "$(sed -n 's/^region_bypass=//p' "$CONF" 2>/dev/null | head -n 1)" in
+    1) echo 'region_mode=overseas' >> "$CONF" ;;
+  esac
+fi
+conf_add region_mode default
 conf_add vpn_lock 0
 conf_add lsp_fix 0
+conf_add thirdparty_home 0
 conf_add volte_fix 1
 conf_add volte_radio_cycle 1
 conf_add qr_fix 1
+conf_add eid_guard 0
 conf_add smartae_target 185
 # v2.2.0: sharpen_cut is retired with its HDRP-XML route. Migrate an explicit 0
 # (user had sharpening off) to the new tier 0; everything else starts at x1.5.
@@ -267,17 +311,80 @@ screen_awake() {
   dumpsys power 2>/dev/null | grep -qm1 'mWakefulness=Awake'
 }
 
+# The interface files are NOT a plain number. The kernel parser wants
+# "<user> <lane> <mA>" and rejects anything else outright:
+#   echo 20000 > interface/iin_thermal   -> [E/power_if] unable to parse input:20000
+#   echo dcp 2000 > ...                  -> unable to parse input:dcp 2000
+# which is all v2.2.0 ever achieved on this file family (both of its writes),
+# at poll_interval, i.e. the "fight" never started on ANY head - and on a
+# PPS/BC12 head there is no SCP/HSC lane to fall back on either, so those users
+# saw nothing at all. Measured with the grammar (2026-11-02, battery Full):
+#   thermal dcp 2000/3000/4000 -> interface/iin_limit row AND
+#   charge_data/iin_rt_current 1000 -> 2000/3000/4000 AND
+#   primary_chg/input_current_limit 1000000 -> 2000000 (-> mt6379 AICR write)
+# How to read the row back: it is the `thermal` user's own vote capped by a
+# per-lane ceiling - dcp takes 20000 as-is, lvc/sc/hsc stay on their temp_para
+# row (4500/12000/14500) no matter what is written. A 0 vote means "thermal does
+# not vote" and the row then shows the next voter (2500 on dcp), NOT a limit of
+# zero; hota_iin_limit/startup_iin_limit read that way (`dcp 0 lvc 0 sc 0 hsc 0`).
+#
+# Read before writing, because the kernel logs EVERY accepted write
+# ([I/power_if] sysfs_set=iin_limit ...) and a blind re-assert at poll_interval
+# measured ~20 kmsg lines/s - that rolls the ring buffer in about a minute and
+# eats the arbitration evidence of the next plug event. `fight` counts the
+# re-asserts, so every one of them is the OS taking a lane back: the fight itself.
 do_unlock() {
-  echo "$max_iin" > "$DC/direct_charger_sc/iin_thermal" 2>/dev/null
-  echo "$max_iin" > "$DC/direct_charger_hsc/iin_thermal" 2>/dev/null
-  [ "$include_lvc" = "1" ] && echo "$max_iin" > "$DC/direct_charger/iin_thermal" 2>/dev/null
-  echo "$max_iin" > "$IFACE/iin_thermal" 2>/dev/null
-  echo "$max_iin" > "$IFACE/ichg_thermal" 2>/dev/null
+  for l in $iface_lanes; do
+    v=$(grep -m1 "^$l " "$IFACE/iin_limit" 2>/dev/null)
+    [ "${v#"$l "}" = "$max_iin" ] && continue
+    echo "thermal $l $max_iin" > "$IFACE/iin_limit" 2>/dev/null
+    fight=$((fight + 1))
+  done
+}
+
+# The per-device charger/direct_charger{,_sc,_hsc}/iin_thermal writes v2.2.0 was
+# built on are gone. The node clamps every write to its own temp_para row ("val
+# is too large: 20000, tuned as default") and then reads back exactly that row,
+# so a vote above the row can never land - measured 2026-11-04 over 42 samples
+# 3 s apart while the daemon was writing: sc/hsc/lvc held 12000/14500/4500
+# through all 975 rejections (54 kernel error lines/minute). At 33.7 degC the
+# rows are 4500/5000-12000/14500 and they only step DOWN with heat, so there is
+# no temperature and no head where max_iin=20000 is not above them: these writes
+# could not help, and below the row they would only lower it.
+
+# Do NOT "release" by writing 0: measured, `thermal dcp 0` took the lane from
+# 1000 -> 2500 and nothing re-applied 1000 for 21 s, so zeroing is a partial
+# unlock, not a hand-back. Snapshot each lane the first time we take it over and
+# write those values back on release. The file survives a daemon restart - the
+# panel kills this script mid-session on a toggle, and a killed daemon would
+# otherwise leave max_iin pinned with no memory of what it replaced.
+IFACE_SAVED=$ST/iface
+iface_snapshot() {
+  [ -s "$IFACE_SAVED" ] && return
+  s=""
+  for l in $iface_lanes; do
+    v=$(grep -m1 "^$l " "$IFACE/iin_limit" 2>/dev/null)
+    v=${v#"$l "}
+    [ -n "$v" ] && [ "$v" != 0 ] && [ "$v" -lt "$max_iin" ] 2>/dev/null && \
+      s="$s $l=$v"
+  done
+  [ -n "$s" ] && echo $s > "$IFACE_SAVED"
+}
+
+do_release() {
+  for p in $(cat "$IFACE_SAVED" 2>/dev/null); do
+    echo "thermal ${p%%=*} ${p##*=}" > "$IFACE/iin_limit" 2>/dev/null
+  done
+  rm -f "$IFACE_SAVED"
 }
 
 poke_protocols() {
   # best-effort; on many builds enable_charger is a read-only view kept by the
-  # charge FW (values then follow the attached adapter). Harmless if ignored.
+  # charge FW (values then follow the attached adapter). On this build all four
+  # lines are refused with [E/power_if] unable to parse input:<line> (measured
+  # 2026-11-03/04: 11 such lines = one plug's worth x2), so the poke costs a
+  # kernel error per line but only once per plug - unlike the old per-cycle
+  # iin_thermal writes it is not a noise source.
   echo "pd 1" > "$IFACE/enable_charger" 2>/dev/null
   echo "hvc 1" > "$IFACE/enable_charger" 2>/dev/null
   echo "hsc 1" > "$IFACE/enable_charger" 2>/dev/null
@@ -304,12 +411,42 @@ if [ -f "$PIDF" ]; then
 fi
 echo $$ > "$PIDF"
 
+# Leave the cgroup we may have been born in. A daemon started from a root shell
+# that the KernelSU APP spawned inherits that app's per-pid group
+# (/sys/fs/cgroup/apps/uid_<ksu>/pid_<app>), and system_server FREEZES it
+# (cgroup.freeze=1) the moment the app goes cached: the daemon stops mid-`sleep`,
+# do_unlock never runs again, and nothing is logged - measured 2026-11-02: one
+# `sleep 10` child alive 10h52m with utime/stime frozen, whole watcher tree stuck
+# in the same group, while a collector sitting in 0::/ kept ticking untouched.
+# Reparenting to init does NOT change the cgroup, so the move must be explicit -
+# and before any watcher forks, since children inherit and it is the main loop's
+# own `sleep` whose freeze deadlocks the loop.
+cgroup_now() { awk -F: '$1=="0"{print $3}' /proc/$$/cgroup 2>/dev/null; }
+cgroup_escape() {
+  for g in /sys/fs/cgroup/cgroup.procs /sys/fs/cgroup/system/cgroup.procs; do
+    [ -w "$g" ] || continue
+    echo $$ > "$g" 2>/dev/null || continue
+    # $$ not /proc/self: this runs in a command substitution, and the subshell
+    # keeps the OLD cgroup after the parent is moved.
+    case "$(cgroup_now)" in ""|*/apps/*) : ;; *) printf '%s\n' "$g"; return ;; esac
+  done
+  printf 'none\n'
+}
+CGFROM=$(cgroup_now)
+CGTO=$(cgroup_escape)
+if [ "$CGTO" = "none" ]; then
+  log "cgroup: still in ${CGFROM:-?} (escape failed - the app can freeze this daemon)"
+else
+  case $CGFROM in */apps/*) log "cgroup: moved out of $CGFROM -> $CGTO (app groups get frozen when the app is cached)" ;; esac
+fi
+
+
 # ---------- QR scan fix (v1.9.8): runtime switch handling ----------
 # post-fs-data already applied the mount for the cold-boot case; this branch
 # runs BEFORE the boot wait so a panel toggle (webui_ctl restarts the daemon)
 # takes effect immediately: qr_fix=1 (re)mounts, qr_fix=0 unmounts. Idempotent.
 QR_TGT=/odm/etc/camera/airaw/facemaskconfig.xml
-QR_STF=/data/adb/honor_charge_unlock.qr
+QR_STF=$ST/qr
 if [ "$qr_fix" = "1" ] && [ -f "$MODDIR/qrfix/facemaskconfig.xml" ] && [ -f "$QR_TGT" ]; then
   # the HAL runs as u:r:mtk_hal_camera and is denied adb_data_file; the module
   # file sits under /data/adb, so relabel it to match the stock target. chcon on
@@ -328,6 +465,15 @@ else
   echo "off" > "$QR_STF" 2>/dev/null
 fi
 
+# ---------- eSIM EID guard (v2.2.2): runtime switch handling ----------
+# post-fs-data already applied the mount for the cold-boot case; this branch runs
+# BEFORE the boot wait so a panel toggle (webui_ctl restarts the daemon) takes
+# effect without a reboot. That works because nothing maps the lib until the first
+# SIM state change - once com.android.phone has loaded it, the already-mapped
+# copy stays, and only the next boot picks the new one. Idempotent: apply.sh
+# unmounts first and regenerates from the factory lib every call.
+sh "$MODDIR/eidfix/apply.sh" "$MODDIR" "$eid_guard"
+
 # ---------- SmartAE exposure knob (v1.9.9): numeric, bind-mounted ----------
 # Regenerated from the pristine module copy on every daemon start, so the knob
 # is stateless: any value (including 0 = factory) is reachable without reflashing
@@ -337,9 +483,9 @@ fi
 # the underlying dm-* block device, so path matching is unreliable on this ROM.
 CAM_ORIG=$MODDIR/camfix/SmartAE_back_orig.xml
 CAM_TGT=/odm/etc/camera/smartae/back/SmartAE.xml
-CAM_DIR=/data/adb/camfix
+CAM_DIR=$ST/camfix
 CAM_GEN=$CAM_DIR/SmartAE_back.xml
-CAM_STF=/data/adb/honor_charge_unlock.cam
+CAM_STF=$ST/cam
 cam_target=${smartae_target:-185}
 case "$cam_target" in ''|*[!0-9]*) cam_target=185 ;; esac
 if [ "$cam_target" -gt 0 ] && [ -f "$CAM_ORIG" ] && [ -f "$CAM_TGT" ]; then
@@ -379,7 +525,7 @@ fi
 # capture FeatureModule (22 Capture_default/LPNR=73, 23=6, 29 cfnr=110, AIISP=137)
 # to NVRAM group 'EE', so one ee column covers normal/LPNR/MFNR/AIISP captures.
 # This ROM has no sqlite3, so tiers ship as 4096-byte page patches: the stock DB
-# is sha256-pinned, copied to /data/adb/camfix, the 63 changed pages are written
+# is sha256-pinned, copied to $ST/camfix, the 63 changed pages are written
 # with dd, relabelled vendor_file (the stock label) and bind-mounted. Off = umount.
 # Each tier scales H1_GN and MASTER_GN_POS/NEG per ISO block, so the factory
 # relative strength between blocks is kept (a flat value would over-sharpen the
@@ -394,8 +540,8 @@ fi
 SHP_TGT=/odm/bin/crossbuild/DataSet/SQLiteModule/db/tuning_DB/calvrns_m010_ldy/ISP_param.db
 SHP_STOCK_SHA=15a18414c0c7ce5d648bf341473059da996b46426ff63ca590ad8d31c441f79b
 SHP_PATCH=$MODDIR/ee_patch
-SHP_DIR=/data/adb/camfix
-SHP_STF=/data/adb/honor_charge_unlock.shp
+SHP_DIR=$ST/camfix
+SHP_STF=$ST/shp
 shp_lv=${sharpen_level:-2}
 case "$shp_lv" in ''|*[!0-9]*) shp_lv=2 ;; esac
 [ "$shp_lv" -gt 4 ] && shp_lv=4
@@ -445,7 +591,7 @@ else
   echo "off" > "$SHP_STF" 2>/dev/null
 fi
 
-# ---------- Front beauty knob (v2.0.1): numeric, single bind-mount ----------
+# ---------- Front beauty knob (v2.0.1): numeric, two bind-mounts ----------
 # Same stateless delivery as the other camfix knobs: umount so the transform
 # always reads the pristine module copy, awk-scale the whitelisted effect curves,
 # bind-mount, then prove the mount took by reading the <!--btyN--> marker back
@@ -455,40 +601,58 @@ fi
 # leaves the tuning untouched instead of half-mangled. Front camera only - the
 # back modules the same engine reads are never bound.
 BTY_AWK=$MODDIR/camfix/beauty.awk
-BTY_ORIG=$MODDIR/camfix/hwbeauty_front_orig.xml
-BTY_TGT=/odm/etc/camera/hwbeauty/front/hwbeauty_params.xml
-BTY_DIR=/data/adb/camfix
-BTY_GEN=$BTY_DIR/hwbeauty_front.xml
-BTY_STF=/data/adb/honor_charge_unlock.bty
+BTY_DIR=$ST/camfix
+BTY_STF=$ST/bty
 bty_cut=${beauty_cut:-30}
 case "$bty_cut" in ''|*[!0-9]*) bty_cut=30 ;; esac
 [ "$bty_cut" -gt 90 ] && bty_cut=90
-if [ "$bty_cut" -gt 0 ] && [ -f "$BTY_ORIG" ] && [ -f "$BTY_TGT" ] && [ -f "$BTY_AWK" ]; then
-  mkdir -p "$BTY_DIR" 2>/dev/null
-  # the stock file's final line has no trailing newline; tell awk so its record
-  # writer neither adds one (cut stays a byte-accurate round-trip) nor omits one
-  # on a source that does have it.
-  bty_eof=1; [ -n "$(tail -c1 "$BTY_ORIG" 2>/dev/null)" ] && bty_eof=0
-  umount "$BTY_TGT" 2>/dev/null
-  awk -v cut="$bty_cut" -v eofnl="$bty_eof" -v cnt="$BTY_GEN.cnt" -f "$BTY_AWK" "$BTY_ORIG" > "$BTY_GEN.new" 2>/dev/null
-  nb=$(cat "$BTY_GEN.cnt" 2>/dev/null); rm -f "$BTY_GEN.cnt" 2>/dev/null
+# The engine picks the file by styleMode (libsit_refine_engine.so, the
+# csel at 0x98d978 over the compares at 0x98d960): styleMode 0 (拍照页) and
+# 73 read hwbeauty_params_lp.xml, every other style (人像 etc.) reads
+# hwbeauty_params.xml. Binding only the second file left photo-page selfies
+# untouched, so both are bound with the same transform.
+# That routing was confirmed on-device the blunt way: bind-mount an empty file
+# over _lp.xml only, restart the camera, and the photo page loses all smoothing
+# (spots/stubble visible) while 人像 in the same process keeps its cream skin -
+# so the photo page really does read _lp.xml and nothing else does. Intensity
+# deltas are NOT a usable proof: single-shot skin texture varies more between
+# two frames of the same setting than between cut=0 and cut=90.
+bty_one() {
+  b_orig=$1; b_tgt=$2; b_gen=$3
+  [ -f "$b_orig" ] && [ -f "$b_tgt" ] && [ -f "$BTY_AWK" ] || return 1
+  # the two stock files disagree on their final-line newline (params.xml has
+  # none, _lp.xml does); tell awk per file so cut stays a byte-accurate
+  # round-trip instead of adding or dropping a byte
+  bty_eof=1; [ -n "$(tail -c1 "$b_orig" 2>/dev/null)" ] && bty_eof=0
+  umount "$b_tgt" 2>/dev/null
+  awk -v cut="$bty_cut" -v eofnl="$bty_eof" -v cnt="$b_gen.cnt" -f "$BTY_AWK" "$b_orig" > "$b_gen.new" 2>/dev/null
+  nb=$(cat "$b_gen.cnt" 2>/dev/null); rm -f "$b_gen.cnt" 2>/dev/null
   case "$nb" in ''|*[!0-9]*) nb=0 ;; esac
-  if [ -s "$BTY_GEN.new" ] && [ "$nb" -ge 100 ]; then
-    mv "$BTY_GEN.new" "$BTY_GEN"; chmod 644 "$BTY_GEN" 2>/dev/null
+  if [ -s "$b_gen.new" ] && [ "$nb" -ge 100 ]; then
+    mv "$b_gen.new" "$b_gen"; chmod 644 "$b_gen" 2>/dev/null
     # same SELinux gate as the other camfix knobs: adb_data_file is denied to
     # u:r:mtk_hal_camera, the stock hwbeauty file is vendor_configs_file
-    chcon u:object_r:vendor_configs_file:s0 "$BTY_GEN" 2>/dev/null
-    mount --bind "$BTY_GEN" "$BTY_TGT" 2>/dev/null
+    chcon u:object_r:vendor_configs_file:s0 "$b_gen" 2>/dev/null
+    mount --bind "$b_gen" "$b_tgt" 2>/dev/null
   else
-    rm -f "$BTY_GEN.new"
+    rm -f "$b_gen.new"
   fi
-  if grep -aq "bty$bty_cut" "$BTY_TGT" 2>/dev/null; then
-    echo "on $bty_cut" > "$BTY_STF" 2>/dev/null
+  grep -aq "bty$bty_cut" "$b_tgt" 2>/dev/null
+}
+bty_total=2
+if [ "$bty_cut" -gt 0 ]; then
+  mkdir -p "$BTY_DIR" 2>/dev/null
+  bty_mounted=0
+  bty_one "$MODDIR/camfix/hwbeauty_front_orig.xml" /odm/etc/camera/hwbeauty/front/hwbeauty_params.xml "$BTY_DIR/hwbeauty_front.xml" && bty_mounted=$((bty_mounted+1))
+  bty_one "$MODDIR/camfix/hwbeauty_front_lp_orig.xml" /odm/etc/camera/hwbeauty/front/hwbeauty_params_lp.xml "$BTY_DIR/hwbeauty_front_lp.xml" && bty_mounted=$((bty_mounted+1))
+  if [ "$bty_mounted" -ge 1 ]; then
+    echo "on $bty_cut $bty_mounted/$bty_total" > "$BTY_STF" 2>/dev/null
   else
-    echo "mount-failed $bty_cut" > "$BTY_STF" 2>/dev/null
+    echo "mount-failed $bty_cut 0/$bty_total" > "$BTY_STF" 2>/dev/null
   fi
 else
-  umount "$BTY_TGT" 2>/dev/null
+  umount /odm/etc/camera/hwbeauty/front/hwbeauty_params.xml 2>/dev/null
+  umount /odm/etc/camera/hwbeauty/front/hwbeauty_params_lp.xml 2>/dev/null
   echo "off" > "$BTY_STF" 2>/dev/null
 fi
 
@@ -498,7 +662,7 @@ fi
 if grep -q ' /odm/etc/camera/smartae/back/wide/SmartAE.xml ' /proc/mounts 2>/dev/null; then
   umount /odm/etc/camera/smartae/back/wide/SmartAE.xml 2>/dev/null
 fi
-rm -f /data/adb/honor_charge_unlock.wae /data/adb/camfix/SmartAE_wide.xml 2>/dev/null
+rm -f $ST/wae $ST/camfix/SmartAE_wide.xml 2>/dev/null
 
 # v2.0.4 one-time upgrade cleanup: the removed night_ev knob (v2.0.3) left a
 # bind-mount on supernight/config.xml from earlier builds. Unmount it so /odm
@@ -506,7 +670,7 @@ rm -f /data/adb/honor_charge_unlock.wae /data/adb/camfix/SmartAE_wide.xml 2>/dev
 if grep -q ' /odm/etc/camera/supernight/config.xml ' /proc/mounts 2>/dev/null; then
   umount /odm/etc/camera/supernight/config.xml 2>/dev/null
 fi
-rm -f /data/adb/honor_charge_unlock.nev /data/adb/camfix/supernight_config.xml 2>/dev/null
+rm -f $ST/nev $ST/camfix/supernight_config.xml 2>/dev/null
 
 # v2.0.5 one-time upgrade cleanup: the removed wide_night_gate knob (v2.0.4) left
 # a bind-mount on featureConfig/dynamic_parameter.xml from that build. That A/B
@@ -516,7 +680,7 @@ rm -f /data/adb/honor_charge_unlock.nev /data/adb/camfix/supernight_config.xml 2
 if grep -q ' /odm/etc/camera/featureConfig/dynamic_parameter.xml ' /proc/mounts 2>/dev/null; then
   umount /odm/etc/camera/featureConfig/dynamic_parameter.xml 2>/dev/null
 fi
-rm -f /data/adb/honor_charge_unlock.wng /data/adb/camfix/dynamic_parameter.xml 2>/dev/null
+rm -f $ST/wng $ST/camfix/dynamic_parameter.xml 2>/dev/null
 
 # v2.0.7 payload cleanup: uw_gain was removed after that AE-table route was
 # disproven on-device (raising the 311 curve blindly triggered a P1Node
@@ -525,7 +689,7 @@ rm -f /data/adb/honor_charge_unlock.wng /data/adb/camfix/dynamic_parameter.xml 2
 # mount now, and this code runs on every daemon start (webui_ctl restarts the
 # daemon after every panel write), so an unmount here would silently revert
 # the uw_exp_ms/uw_iso_gain knobs.
-rm -f /data/adb/honor_charge_unlock.uwg /data/adb/honor_charge_unlock.uwg.mnt \
+rm -f $ST/uwg $ST/uwg.mnt \
       "$MODDIR/camfix/uw_gain_blobs.bin" 2>/dev/null
 
 # ---------- Ultra-wide low-light exposure knob (v2.1.0) ----------
@@ -542,10 +706,10 @@ UWA_DB_BASE=4265296
 UWA_DB_EMAX=4265560
 UWA_DB_ISO=4265568
 UWA_SO_OFF1=1335656
-UWA_DIR=/data/adb/camfix
+UWA_DIR=$ST/camfix
 UWA_DB_GEN=$UWA_DIR/uw_ae.db
 UWA_SO_GEN=$UWA_DIR/uw_metastore.so
-UWA_STF=/data/adb/honor_charge_unlock.uwa
+UWA_STF=$ST/uwa
 uw_exp_ms=${uw_exp_ms:-910}
 case "$uw_exp_ms" in ''|*[!0-9]*) uw_exp_ms=910 ;; esac
 if [ "$uw_exp_ms" -gt 0 ]; then
@@ -704,6 +868,25 @@ fi
 echo "$uw_new" > "$UWA_STF" 2>/dev/null
 log "uw: $uw_new (was exp=$uw_cur_exp iso=$uw_cur_iso fps=$uw_cur_fps match=$uw_match)"
 
+# ---------- third-party home (v2.3.0): undo the boot-window mask ----------
+# post-fs-data masked ro.build.characteristics to "phone" before zygote so
+# system_server's HwPackageManagerServiceUtils latches
+# (IS_CHINA && characteristics in {default,tablet}) == false and reports
+# android.software.home_screen as supported - the bit both the HOME role and the
+# AntiMal launcher check key off (full chain in post-fs-data.sh). That value is a
+# static final, so the mask only has to survive class-init; the prop itself must
+# be back to stock BEFORE later classes read it, because DataUtils.IS_PHONE is a
+# strict "default" test that gates the display-engine capsule receiver.
+# post-fs-data already launched tph_restore.sh at the earliest possible moment;
+# this is the fallback for the case where that pre-zygote child did not survive.
+# tph_restore.sh is idempotent (.tph.done), waits for the package service with
+# the native client, issues one has-feature query (proof + forced latch) and then
+# restores. A switch flipped without a reboot only changes the next boot.
+if [ "$thirdparty_home" = "1" ] && [ -f "$MODDIR/tph_restore.sh" ]; then
+  ( sh "$MODDIR/tph_restore.sh" >/dev/null 2>&1 & )
+  log "thirdparty_home: restore fallback started"
+fi
+
 # wait for boot
 while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 2; done
 sleep 10
@@ -821,7 +1004,7 @@ fi
 #   tx21 notifyGoogleKeepAlive("com.google.android.gms", true)
 #        -> setPgShouldNotFreeze + immediate unfreeze of GMS processes.
 # Root-only, no persistent processes, no LSP injection (broken on Honor).
-FCM_STF=/data/adb/honor_charge_unlock.fcm
+FCM_STF=$ST/fcm
 fcm_urls=$(printf '%s' "$fcm_probe_urls" | tr -d ' \t\r' | tr ',' ' ')
 fcm_avail=1
 
@@ -899,7 +1082,7 @@ fcm_boot_boost=5   # dense 60s re-asserts right after daemon start (PowerGenie r
 # Parcel layout via service(1): i32 userId, s16 pkg, i32 bool (1 byte read,
 # realigned), i32 0 = empty allowlist; "i32 -1" writes a length of -1 which
 # the server reads as pkg=null -> releases always-on AND lockdown.
-VPN_STF=/data/adb/honor_charge_unlock.vpn
+VPN_STF=$ST/vpn
 VPN_TX_SET=15
 VPN_TX_LOCK=17
 vpn_tx() { service call vpn_management "$@" 2>/dev/null; }
@@ -1022,25 +1205,30 @@ else
 fi
 
 # ---------- LSPosed system-scope fix (v1.9.5) ----------
-# post-fs-data masked ro.product.locale to en-US (pre-zygote) so the lspd
+# post-fs-data masks ro.product.locale to en-US (pre-zygote) so the lspd
 # daemon's module parse skips the CN-only NPE branch that drops system-scope
 # LSPosed modules from the system_server list. The parse window is over once
-# system_server is up, so restore zh-CN shortly after boot_completed; the
+# system_server is up, so restore the locale shortly after boot_completed; the
 # user never sees the mask. If the daemon starts after the restore is due
-# (e.g. daemon killed + restarted), the locale is already zh-CN and the
-# restore below is a harmless no-op.
-LSP_STF=/data/adb/honor_charge_unlock.lsp
+# (e.g. daemon killed + restarted), the locale is already back and the restore
+# below is a harmless no-op.
+# The resting point is the selected region identity: region_mode=overseas wrote
+# en/US on purpose, so the mask is not something to undo there.
+LSP_STF=$ST/lsp
+loc_lang=zh
+loc_reg=CN
+[ "$region_mode" = "overseas" ] && { loc_lang=en; loc_reg=US; }
 if [ "$lsp_fix" = "1" ]; then
   (
     until [ "$(getprop sys.boot_completed)" = "1" ]; do sleep 1; done
     sleep 5
     RP=/data/adb/ksu/bin/resetprop
     [ -x "$RP" ] || RP=resetprop
-    "$RP" ro.product.locale.language zh
-    "$RP" ro.product.locale.region CN
+    "$RP" ro.product.locale.language "$loc_lang"
+    "$RP" ro.product.locale.region "$loc_reg"
     echo "$(date) restored" > "$LSP_STF" 2>/dev/null
   ) &
-  log "lsp_fix: locale mask restore scheduled (boot_completed+5s)"
+  log "lsp_fix: locale mask restore scheduled (boot_completed+5s -> $loc_lang/$loc_reg)"
 else
   echo off > "$LSP_STF" 2>/dev/null
 fi
@@ -1062,7 +1250,7 @@ fi
 # Watcher: ensures one type=ims row per loaded SIM operator numeric, re-run
 # only when the numeric set changes (SIM swap); idempotent, never touches
 # existing rows.
-VOLTE_STF=/data/adb/honor_charge_unlock.volte
+VOLTE_STF=$ST/volte
 volte_ensure() {  # $1 = operator numeric (e.g. 44054) -> prints ok|ins|err
   num=$1
   mcc=$(printf '%s' "$num" | cut -c 1-3)
@@ -1141,8 +1329,11 @@ fi
 prev_charging=0
 cycle=0
 applied=0
+voted=0
+fight=0
 while :; do
-  if [ -f /data/adb/honor_charge_unlock.paused ]; then
+  if [ -f $ST/paused ]; then
+    if [ "$voted" = "1" ]; then do_release; voted=0; log "votes released (paused)"; fi
     sleep 1; continue
   fi
   # refresh inputs every 10 cycles; writes run every cycle
@@ -1172,10 +1363,19 @@ while :; do
     [ "$guarded" = "1" ] && want=0
   fi
   if [ "$want" = "1" ]; then
+    [ "$voted" = "1" ] || iface_snapshot
     do_unlock
+    voted=1
     applied=$((applied + 1))
     [ $((applied % 600)) -eq 1 ] && \
-      log "unlock applied (status=$status temp=$temp sc=$(cat "$DC/direct_charger_sc/iin_thermal" 2>/dev/null) hsc=$(cat "$DC/direct_charger_hsc/iin_thermal" 2>/dev/null))"
+      log "unlock applied (status=$status temp=$temp fight=$fight dcp=$(grep -m1 '^dcp ' "$IFACE/iin_limit" 2>/dev/null) rt=$(cat "$DC/charge_data/iin_rt_current" 2>/dev/null) sc=$(cat "$DC/direct_charger_sc/iin_thermal" 2>/dev/null) hsc=$(cat "$DC/direct_charger_hsc/iin_thermal" 2>/dev/null))"
+  elif [ "$voted" = "1" ]; then
+    # unplugged, temp_guard tripped or the screen gate closed: the vote is
+    # sticky in the kernel registry, so hand the lanes back instead of leaving
+    # max_iin pinned for the next (possibly vendor-throttled) session.
+    do_release
+    voted=0
+    log "votes released (status=$status temp=$temp dcp=$(grep -m1 '^dcp ' "$IFACE/iin_limit" 2>/dev/null))"
   fi
   # re-assert preload-disable every ~60 cycles (cloud config may re-push)
   if [ "$disable_preload" = "1" ] && [ $((cycle % 60)) -eq 0 ]; then

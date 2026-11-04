@@ -7,7 +7,7 @@
 <style>
 :root{--bg:#0e1116;--card:#171c24;--card2:#1d2430;--tx:#dbe4f0;--dim:#8494ab;--ok:#39d98a;--warn:#ffb340;--off:#3a4657;--acc:#4da3ff;--line:#232c3a}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--tx);font:14px/1.5 -apple-system,"HarmonyOS Sans",Roboto,"Noto Sans CJK SC",sans-serif;padding:14px;max-width:560px;margin:0 auto;-webkit-text-size-adjust:100%}
+body{background:var(--bg);color:var(--tx);font:14px/1.5 -apple-system,"HarmonyOS Sans",Roboto,"Noto Sans CJK SC",sans-serif;padding:14px 14px 68px;max-width:560px;margin:0 auto;-webkit-text-size-adjust:100%}
 h1{font-size:17px;font-weight:700;margin-bottom:2px}
 .sub{color:var(--dim);font-size:12px;margin-bottom:12px}
 .chip{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600;margin-left:6px;vertical-align:2px}
@@ -42,6 +42,11 @@ canvas{width:100%;height:150px;display:block}
 .num{width:66px;background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:4px 6px;font-size:13px;font-variant-numeric:tabular-nums;text-align:center}
 .num:focus{outline:none;border-color:var(--acc)}
 .btn2{margin-left:6px;padding:4px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card2);color:var(--tx);font-size:12px}
+.page{display:none}
+.page.on{display:block}
+.tabs{position:fixed;left:0;right:0;bottom:0;max-width:560px;margin:0 auto;display:flex;gap:8px;padding:8px 14px calc(8px + env(safe-area-inset-bottom));background:var(--card);border-top:1px solid var(--line)}
+.tab{flex:1;padding:9px 0;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--dim);font-size:13px;font-weight:700}
+.tab.on{background:#123b2a;color:var(--ok);border-color:#1d5c40}
 </style>
 </head>
 <body>
@@ -49,6 +54,7 @@ canvas{width:100%;height:150px;display:block}
 <div class="sub"><span id="sub">荣耀调度解锁 · MagicOS / MTK 面板</span> <span class="chip off" id="chipFcm">…</span> <span class="chip off" id="chipExec">…</span></div>
 <div id="noapi" class="err" style="display:none">未检测到 KernelSU WebUI 桥接。请在 KernelSU 管理器 → 本模块 → WebUI 中打开。当前展示为演示数据。</div>
 
+<div class="page on" id="pageHome">
 <div class="card big">
   <h2>实时充电</h2>
   <div class="grid">
@@ -86,6 +92,11 @@ canvas{width:100%;height:150px;display:block}
   </div>
   <div style="margin-top:8px">
     <div class="row"><span class="n">目标 ICC</span><span class="v" id="dTicc">—</span></div>
+    <div class="row"><span class="n">目标 AICR（不跟 eff）</span><span class="v" id="dTaicr">—</span></div>
+    <div class="row"><span class="n">已施加上限命中的 iin_limit 行</span><span class="v" id="dSlot">—</span></div>
+    <div class="row"><span class="n">IC 允许输入(V×I)</span><span class="v" id="dHead">—</span></div>
+    <div class="row"><span class="n">VBUS 实测(按通道)</span><span class="v" id="dVbus">—</span></div>
+    <div class="row"><span class="n">锁定 ICC/AICR</span><span class="v" id="dLock">—</span></div>
     <div class="row"><span class="n">线缆阻抗估计</span><span class="v" id="dRes">—</span></div>
     <div class="row"><span class="n">电池健康(FCF/设计)</span><span class="v" id="dSoh">—</span></div>
     <div class="row"><span class="n">循环次数</span><span class="v" id="dCycle">—</span></div>
@@ -110,9 +121,34 @@ canvas{width:100%;height:150px;display:block}
   <div class="row"><span class="n">禁用app预加载iaware</span><button class="tg" id="tgPre">…</button></div>
   <div class="row"><span class="n">FCM推送保活解锁(国内谷歌推送)</span><button class="tg" id="tgFcm">…</button></div>
   <div class="row"><span class="n">GMS推送·VPN 监控指示器(仅调试用)</span><button class="tg" id="tgVlock">…</button></div>
-  <div class="row"><span class="n">海外区域旁路(optb, 重启生效)</span><button class="tg" id="tgRb">…</button></div>
+  <div class="row"><span class="n">区域身份（optb + locale，重启生效）</span>
+    <select class="sel" id="selRegion">
+      <option value="default">默认</option>
+      <option value="cn">国行</option>
+      <option value="overseas">海外</option>
+    </select></div>
+  <div class="note" id="dRegionNote">—</div>
   <div class="row"><span class="n">LSPosed系统作用域修复(系统模块注入, 重启生效)</span><button class="tg" id="tgLsp">…</button></div>
+  <div class="row"><span class="n">第三方桌面解锁(换默认桌面, 不依赖 lsp_fix, 重启生效)</span><button class="tg" id="tgTph">…</button></div>
+  <div class="note" id="dTph">—</div>
   <div class="row"><span class="n">VoLTE解锁(自动补ims接入点, 国内外卡通用)</span><button class="tg" id="tgVolte">…</button></div>
+  <div class="row"><span class="n">eSIM EID 校验旁路 · 卡2「非法 eSIM 已禁用」</span><button class="tg" id="tgEid">…</button></div>
+  <div class="note" id="dEidNote">—</div>
+  <div class="row"><span class="n">滑动限频（大簇 policy4）</span><select class="sel" id="selScroll">
+    <option value="0">关</option>
+    <option value="900000">0.9G</option>
+    <option value="800000">0.8G（推荐）</option>
+    <option value="700000">0.7G</option>
+    <option value="600000">0.6G</option>
+  </select></div>
+  <div class="row"><span class="n">守护进程</span><span><button class="btn2" id="btnPause">暂停</button><button class="btn2" id="btnRestart">重启</button></span></div>
+  <div class="note" id="ctlNote">改动写入 /data/adb/honor_charge_unlock/conf 并自动重载守护，约 12 秒后全部生效。</div>
+</div>
+</div>
+
+<div class="page" id="pageCam">
+<div class="card">
+  <h2>相机</h2>
   <div class="row"><span class="n">相机扫码修复(拍码糊/对焦拉锯, 重开相机生效)</span><button class="tg" id="tgQr">…</button></div>
   <div class="row"><span class="n">相机曝光抑制 · 主摄测光目标 Target<br><span style="color:var(--dim);font-size:11px">越小整体越暗、高光越不容易溢出。出厂 200 ｜ 推荐 170–195 ｜ 0 = 关闭（回到出厂）｜ 默认 185<br>低于 ~170 暗光/室内人脸会发灰闷；改完重开相机即生效，无需重启</span></span>
     <span style="display:flex;align-items:center;gap:6px"><input class="num" id="numCam" type="number" min="0" max="250" step="5" value="185"><button class="btn2" id="btnCam">应用</button></span></div>
@@ -129,16 +165,11 @@ canvas{width:100%;height:150px;display:block}
   <div class="row"><span class="n">超广角(0.7x)暗光增益 · ISO 表增益<br><span style="color:var(--dim);font-size:11px">100% = 出厂｜默认 100%｜范围 100–250<br>实测 160% 时 AE 拿曝光换 ISO（910→700ms）且偏红（R/G 2.71，主摄夜景参考 1.75–2.01）；优先不偏色就保持 100%。重开相机生效</span></span>
     <span style="display:flex;align-items:center;gap:6px"><input class="num" id="numUwIso" type="number" min="100" max="250" step="5" value="100"><span class="sub">%</span><button class="btn2" id="btnUwIso">应用</button></span></div>
   <div class="note" id="dUwIsoNote">—</div>
-  <div class="row"><span class="n">滑动限频（大簇 policy4）</span><select class="sel" id="selScroll">
-    <option value="0">关</option>
-    <option value="900000">0.9G</option>
-    <option value="800000">0.8G（推荐）</option>
-    <option value="700000">0.7G</option>
-    <option value="600000">0.6G</option>
-  </select></div>
-  <div class="row"><span class="n">守护进程</span><span><button class="btn2" id="btnPause">暂停</button><button class="btn2" id="btnRestart">重启</button></span></div>
-  <div class="note" id="ctlNote">改动写入 /data/adb/honor_charge_unlock.conf 并自动重载守护，约 12 秒后全部生效。</div>
+  <div class="note">改动写入 /data/adb/honor_charge_unlock/conf 并自动重载守护；相机项改完重开相机即生效，无需重启。</div>
 </div>
+</div>
+
+<div class="tabs"><button class="tab on" id="tabHome">主页</button><button class="tab" id="tabCam">相机</button></div>
 
 <div class="sub" id="foot">刷新中…</div>
 
@@ -147,6 +178,13 @@ var D = {};                 // latest key=value
 var hist = [];              // {p: power W, sc: value, hsc: value}
 var HMAX = 150;
 var timer = null;
+var DASH = 'sh /data/adb/modules/honor_charge_unlock/dashboard.sh';
+var curPage = 'pageHome';
+var TICK_N = 0;
+// dashboard.sh quick = charging + conf + camera (every 3 s); full = the same
+// plus the identity rows (registry/connectivity/pm/ss/eSIM sha) that only move
+// on a boot, SIM or adapter event. FULL_EVERY=5 keeps those at ~15 s.
+var FULL_EVERY = 5;
 
 function api(){ return (typeof ksu !== 'undefined' && ksu) ? ksu : ((typeof kernelsu !== 'undefined' && kernelsu) ? kernelsu : null); }
 
@@ -234,7 +272,9 @@ async function setKey(k, v, btn){
   if (btn) btn.textContent = (r && r.indexOf('OK') >= 0) ? '✓ 已写入' : '失败';
   setTimeout(function(){ if (btn) btn.textContent = old; }, 1500);
   ctlBusy = false;
-  tick();
+  // force: the knob that was just written usually still holds focus, and the
+  // echo of the new value is the confirmation the user is looking at
+  tick(true);
 }
 
 function render(){
@@ -306,6 +346,38 @@ function render(){
   $('dCv').innerHTML = fmt(D.PC_CV, 'mV', 1000);
   $('dTicc').innerHTML = fmt(D.PC_TICC, 'µA', 1);
 
+  // input side, three different numbers that are easy to conflate: the ceiling
+  // the kernel actually applied (PC_AICR - it programs the charge IC from the
+  // arbitration result M:ilim eff), the kernel's AICR target (PC_TAICR), and what
+  // the charge IC would accept (PC_VMAX x PC_CMAX). The target does NOT track the
+  // applied value (2026-11-03 21:53 UTC same frame: PC_AICR 1200000 while
+  // PC_TAICR 1000000 and our own dcp row already read 20000), so the lane match
+  // runs against PC_AICR and can name several rows for one number - it is
+  // arithmetic, not "the lane the module unlocked".
+  var ta = num(D.PC_TAICR);
+  $('dTaicr').innerHTML = ta ? (ta/1000).toFixed(0) + ' <small>mA</small>' : '—';
+  // '?' is the honest common case while the vendor thermal vote is the min: the
+  // applied mA then equals a ladder value no iin_limit row carries (2026-11-04
+  // 07:05 frame: ceiling 1200, wl_hsc had already stepped 1200 -> 600).
+  $('dSlot').innerHTML = !D.AICR_SLOT || D.AICR_SLOT === '?'
+    ? '<small style="color:var(--dim)">不匹配任何行（上限来自厂商温表投票）</small>'
+    : D.AICR_SLOT.split(',').join(' / ');
+  var cmax = num(D.PC_CMAX), vmax = num(D.PC_VMAX);
+  $('dHead').innerHTML = (cmax > 0 && vmax > 0)
+    ? ((vmax/1e6).toFixed(1) + 'V × ' + (cmax/1000).toFixed(0) + 'mA ≈ '
+       + ((vmax/1e6) * (cmax/1e6)).toFixed(1) + ' <small>W</small>')
+    : '—';
+  var vbToks = (D.IF_VBUS || '').split(/\s+/).filter(Boolean), vb = [];
+  for (var vi = 0; vi + 1 < vbToks.length; vi += 2) {
+    var vv = num(vbToks[vi+1]);
+    if (vv > 0) vb.push(vbToks[vi] + ' ' + (vv/1000).toFixed(1) + 'V');
+  }
+  $('dVbus').innerHTML = !charging ? '—'
+    : (vb.length ? vb.join(' · ')
+      : '<small style="color:var(--dim)">全 0（未走 PPS/直充调压通道）</small>');
+  var lk = (D.PC_LOCK || '').match(/en:\s*(\d)/);
+  $('dLock').innerHTML = lk ? (lk[1] === '1' ? '已锁定' : '未锁定（跟随仲裁）') : '—';
+
   // battery health
   var fcc = num(D.B_FCC), design = num(D.B_FCC_DESIGN);
   $('dSoh').textContent = (fcc && design) ? (fcc * 100 / design).toFixed(1) + ' %' : (D.B_SOH || '—');
@@ -321,38 +393,82 @@ function render(){
   cd.textContent = D.DAEMON === '1' ? '守护进程 ✓' : '守护进程 ✕';
   cd.className = 'chip ' + (D.DAEMON === '1' ? 'ok' : 'off');
   var cu = $('chipUnlock');
-  var sc3 = num(D.DC_SC_IIN3), sc = num(D.DC_sc_IIN);
-  var eff = Math.max(sc3 || 0, sc || 0);
   var isCharging = (status === 'Charging' || status === 'Full');
   var hsParts = (D.ADP_HS || '').split(':');
   var hsOk = num(hsParts[2]) > 0;                       // adapter reported a tier
   var dcOn = / 1/.test(D.CHG_MODE || '');               // a direct-charge lane active
-  // original semantics: this chip reports whether the unlock FIGHT is winning.
-  // 被压制 = charging, module should be fighting, but the limit is still capped.
-  // Two states are NOT the module losing and must not read as 被压制:
-  //   - no direct-charge lane at all (plain 5V USB/DCP): the adapter itself sets
-  //     the ceiling, there is nothing to unlock (measured here: ADP_TYPE=0,
-  //     ADP_SUPPORT=0, CHG_MODE lanes 0 - yet sc/hsc nodes still read 12000/14500,
-  //     so an eff>=11000 "解锁生效" would be a lie in the other direction too)
-  //   - battery >=44.0C: the kernel's own temp_para ladder clamps 12000/14500 ->
-  //     6000/1700/0 regardless of what we write (in-kernel, unbeatable)
+  // This chip says whether the iin fight is winning, read off the two nodes the
+  // fight actually moves (2026-11-03 SCP-head captures, both plug frames):
+  //   our vote  = the iface_lanes row of interface/iin_limit. `thermal dcp 20000`
+  //               lands there and the kernel echoes it back as the accepted vote
+  //               (dcp:iin_limit voter thermal,id:0 en:on val:20000), so that row
+  //               IS the readback - no kmsg needed.
+  //   the floor = primary_chg/input_current_limit, what the kernel programmed the
+  //               charge IC from M:ilim eff = min over the enabled voters.
+  // Measured: our row 20000 accepted, M:ilim still took its min from the vendor's
+  // thermal,id:2 = 1200 -> IC 1200000. That gap is the real 被压制.
+  // The direct-charge lane width (DC_*_IIN) says nothing about this fight: sc/hsc
+  // are a different lane, clamped in-kernel by temp_para (at >=44.0C
+  // 12000/14500 -> 6000/1700/0 whatever we write), so NTC goes in the label as the
+  // cause instead of replacing the verdict.
+  // Not the module losing either: with no direct-charge lane at all (plain 5V
+  // USB/DCP) the adapter itself sets the ceiling and there is nothing to unlock.
   var dcAvail = dcOn || hsOk || num(D.ADP_SUPPORT) > 0;
+  var lanes = (D.CONF_IFACE_LANES || 'dcp').split(' ');
+  var want = num(D.CONF_MAX_IIN) || 0;
+  var ourVote = 0;
+  (D.IIN_LIMIT || '').split(';').forEach(function (r) {
+    var p = r.trim().split(' ');
+    if (lanes.indexOf(p[0]) >= 0) ourVote = Math.max(ourVote, num(p[1]) || 0);
+  });
+  var eff = (num(D.PC_AICR) || 0) / 1000;               // mA the IC was given
+  var why = (temp !== null && temp >= 440) ? '（NTC ' + (temp / 10).toFixed(0) + '°C 厂商温表）' : '';
   if (D.PAUSED === '1') { cu.textContent = '已暂停'; cu.className = 'chip off'; }
   else if (!isCharging) { cu.textContent = '未充电'; cu.className = 'chip off'; }
   else if (!dcAvail) { cu.textContent = '非直充（无高功率通道）'; cu.className = 'chip off'; }
-  else if (temp !== null && temp >= 440) { cu.textContent = '温控限流 ' + (temp / 10).toFixed(0) + '°C'; cu.className = 'chip warn'; }
-  else if (eff >= 11000) { cu.textContent = '解锁生效'; cu.className = 'chip ok'; }
-  else { cu.textContent = '被压制'; cu.className = 'chip warn'; }
+  else if (!want || ourVote <= 0) { cu.textContent = '票读不到'; cu.className = 'chip off'; }
+  else if (ourVote < want) { cu.textContent = '票未生效 ' + ourVote + '/' + want + ' mA'; cu.className = 'chip warn'; }
+  else if (eff >= want) { cu.textContent = '解锁生效'; cu.className = 'chip ok'; }
+  else { cu.textContent = '被压制 ' + eff.toFixed(0) + ' mA' + why; cu.className = 'chip warn'; }
   tgSet('tgScreen', D.CONF_SCREEN_ON_UNLOCK === '1');
   tgSet('tgOff', D.CONF_UNLOCK_OFF === '1');
   tgSet('tgLb', D.CONF_LAUNCH_BOOST === '1');
   tgSet('tgPre', D.CONF_DISABLE_PRELOAD === '1');
   tgSet('tgFcm', D.CONF_FCM_UNLOCK === '1');
   tgSet('tgVlock', D.CONF_VPN_LOCK === '1');
-  tgSet('tgRb', D.CONF_REGION_BYPASS === '1');
+  // region identity: the prop area holds what this boot actually latched.
+  // post-fs-data writes it, so a just-chosen mode reads "待重启" until reboot.
+  var rg = $('selRegion'), rgv = D.CONF_REGION_MODE || 'default';
+  if (rg && document.activeElement !== rg) rg.value = rgv;
+  var rob = D.REGION_OPTB || '', rlc = D.REGION_LOCALE || '';
+  var rw = rgv === 'cn' ? ['156', 'CN'] : (rgv === 'overseas' ? ['392', 'US'] : null);
+  var rlive = '当前 optb ' + (rob || '?') + ' · locale ' + (rlc || '?');
+  if (!rw) {
+    $('dRegionNote').innerHTML = '<span style="color:var(--dim)">不改写，跟随固件：' + rlive + '</span>';
+  } else if (rob === rw[0] && rlc === rw[1]) {
+    $('dRegionNote').innerHTML = '<span style="color:var(--ok)">✓ 已钉为 ' + rw[0] + '/' + rw[1] + '（' + rlive + '）</span>';
+  } else {
+    $('dRegionNote').innerHTML = '<span style="color:var(--warn)">待重启生效：目标 ' + rw[0] + '/' + rw[1] + '，' + rlive + '</span>';
+  }
   tgSet('tgLsp', D.CONF_LSP_FIX === '1');
+  tgSet('tgTph', D.CONF_THIRDPARTY_HOME === '1');
   tgSet('tgVolte', D.CONF_VOLTE_FIX === '1');
   tgSet('tgQr', D.CONF_QR_FIX === '1');
+  tgSet('tgEid', D.CONF_EID_GUARD === '1');
+  // eid_guard live state: the sha read through the /system path is what the phone
+  // process would dlopen, so "patched" is proof the bind mount is live right now
+  var de = $('dEidNote'), es = D.EID_STATE || '', el = D.EID_LIVE || '';
+  if (D.CONF_EID_GUARD !== '1') {
+    de.innerHTML = '<span style="color:var(--dim)">已关闭（出厂校验在工作' + (el === 'factory' ? '' : '，当前读数 ' + (el || '?')) + '）</span>';
+  } else if (el === 'patched') {
+    de.innerHTML = '<span style="color:var(--ok)">✓ 校验已旁路（EID 读数已置空）</span> <span style="color:var(--warn)">添加国内运营商 eSIM 前需关闭并重启</span>';
+  } else if (es === 'unsupported') {
+    de.innerHTML = '<span style="color:var(--warn)">该固件的 liboeminfoInf_esim.so 与补丁基准不符，已自动停用</span>';
+  } else if (es === 'mount-failed' || es === 'patch-failed' || es === 'missing') {
+    de.innerHTML = '<span style="color:var(--warn)">' + es + '：挂载/生成失败，校验未旁路</span>';
+  } else {
+    de.innerHTML = '<span style="color:var(--dim)">等待守护重载…（当前读数 ' + (el || '?') + '）</span>';
+  }
   // LSPosed system-scope fix: the locale mask lives only in the early-boot
   // parse window; state file shows whether the zh-CN restore has run
   var dl = $('dLsp');
@@ -363,6 +479,19 @@ function render(){
     if (lspSt.indexOf('restored') >= 0) dl.innerHTML = '<span style="color:var(--ok)">✓ 已恢复 (zh-CN)</span>';
     else if (lspSt.indexOf('masked') >= 0) dl.innerHTML = '<span style="color:var(--warn)">已屏蔽（等待恢复）</span>';
     else dl.innerHTML = '<span style="color:var(--dim)">等待守护/重启</span>';
+  }
+  // third-party home: the characteristics mask lives only in the pre-zygote
+  // window; the sidecar records whether system_server latched home_screen
+  // as supported (feature=true) or the mask never landed (false)
+  var dt = $('dTph');
+  if (D.CONF_THIRDPARTY_HOME !== '1') {
+    dt.innerHTML = '<span style="color:var(--dim)">已关闭</span>';
+  } else {
+    var ts = D.TPH_STATE || '';
+    if (ts.indexOf('feature=true') >= 0) dt.innerHTML = '<span style="color:var(--ok)">✓ 已生效（home_screen 已放行，characteristics 现为 ' + (D.CHARS || '?') + '）</span>';
+    else if (ts.indexOf('feature=false') >= 0) dt.innerHTML = '<span style="color:var(--warn)">本次开机未生效（掩码没落上），需重启</span>';
+    else if (ts.indexOf('masked') >= 0) dt.innerHTML = '<span style="color:var(--warn)">已掩码，等待 system_server 起来后还原</span>';
+    else dt.innerHTML = '<span style="color:var(--dim)">等待守护/重启</span>';
   }
   // VoLTE fix state: off / wait-sim / "ok <numerics> [inserted=N]" / radio-cycle / err
   var dv = $('dVolte');
@@ -411,15 +540,20 @@ function render(){
     sn.innerHTML = '<span style="color:var(--dim)">等待守护挂载：目标档位 ' + sc + '，当前 ' + (effS === null ? '出厂' : '档位 ' + effS) + '</span>';
   }
   // beauty_cut knob: same rule - show the intensity cut actually live in the
-  // front hwbeauty_params.xml bind-mount (single file, so no mount count).
+  // front hwbeauty bind-mounts. The engine reads one of two files depending on
+  // styleMode (拍照 -> ..._lp.xml, 人像等 -> hwbeauty_params.xml), so "生效" means
+  // both carry the marker; one of two is reported as a partial mount instead of
+  // silently reading as success.
   var bnn = $('dBtyNote'), bi2 = $('numBty');
-  var bc = num(D.CONF_BEAUTY_CUT), effB = num(D.EFF_BEAUTY), bs = D.BTY_STATE || '';
+  var bc = num(D.CONF_BEAUTY_CUT), effB = num(D.EFF_BEAUTY), effBlp = num(D.EFF_BEAUTY_LP), bs = D.BTY_STATE || '';
   if (bc === null) bc = 30;
   if (document.activeElement !== bi2) bi2.value = bc;
   if (bc === 0) {
     bnn.innerHTML = '<span style="color:var(--dim)">已关闭：前置按出厂磨皮/美型强度出片</span>';
-  } else if (effB === bc) {
-    bnn.innerHTML = '<span style="color:var(--ok)">✓ 生效中 降 ' + effB + '%（重开相机生效）</span>';
+  } else if (effB === bc && effBlp === bc) {
+    bnn.innerHTML = '<span style="color:var(--ok)">✓ 生效中 降 ' + effB + '%（拍照/人像两档 2/2，重开相机生效）</span>';
+  } else if (effB === bc || effBlp === bc) {
+    bnn.innerHTML = '<span style="color:var(--warn)">只挂上 1/2 档：' + (effB === bc ? '人像' : '拍照') + '已降，另一档仍出厂</span>';
   } else if (bs.indexOf('mount-failed') >= 0) {
     bnn.innerHTML = '<span style="color:var(--warn)">挂载失败：仍为出厂强度</span>';
   } else {
@@ -550,13 +684,28 @@ function draw(){
 }
 
 var tickPending = false;
-async function tick(){
-  if (tickPending) return;          // never queue ticks: a slow bridge exec must
-  tickPending = true;               // not pile up behind the previous one
+// A knob under the finger gets the phone to itself: no collector forks while an
+// input or select holds focus. Asked straight from activeElement - a WebView can
+// be reached without any focus event firing, and one missed focusin is exactly
+// the multi-second stall this is here to remove.
+function fieldHasFocus(){
+  var n = document.activeElement && document.activeElement.tagName;
+  return n === 'INPUT' || n === 'SELECT' || n === 'TEXTAREA';
+}
+async function tick(force){
+  // nothing is on screen to update, so nothing is worth forking: a panel left in
+  // the background would otherwise keep collecting every 3 seconds
+  if (document.hidden || document.visibilityState !== 'visible') return;
+  if (tickPending || (!force && fieldHasFocus())) return;  // never queue ticks: a
+  tickPending = true;                          // slow exec must not pile up
   try{
-    var txt = await run('sh /data/adb/modules/honor_charge_unlock/dashboard.sh');
+    var full = (++TICK_N % FULL_EVERY === 1) && curPage === 'pageHome';
+    var txt = await run(DASH + (full ? ' full' : ' quick'));
     if (!txt){ document.getElementById('foot').textContent = '读取失败（桥接超时或无 root）'; tickPending = false; return; }
-    D = parse(txt);
+    var nd = parse(txt);
+    if (full) D = nd;
+    // quick rows must not blank the identity rows the last full tick proved
+    else { for (var k in nd) D[k] = nd[k]; }
     render();
     // same power value as the live panel (previously assumed µA and plotted ~0)
     hist.push({p: calcBattery().pW, sc: num(D.DC_sc_IIN), hsc: num(D.DC_hsc_IIN)});
@@ -573,15 +722,24 @@ function start(){
     // demo data so the layout is still visible outside KSU
     D = {B_STATUS:'Charging',B_TEMP:'335',B_CAP:'67',B_VOLT:'4123000',B_CUR:'4123000',B_CYCLE:'85',B_FCC:'5321000',B_FCC_DESIGN:'5500000',
          PROTO:'dcp 1 hvc 0 pd 1 lvc 1 sc 1 mainsc 1 auxsc 1 hsc 1 wl_sc 1',
-         IIN_LIMIT:'dcp 1000;lvc 4500;sc 12000;hsc 14500;wl_sc 3000;wl_hsc 2500;',
+         IIN_LIMIT:'dcp 20000;lvc 4500;sc 12000;hsc 14500;wl_sc 1500;wl_hsc 1200;',
          CHG_MODE:'hsc 1',ADAP_VOLT:'hsc 8800',ADP_TYPE:'11',USB_TYPE:'DCP',PC_USTYPE:'[DCP]',
          DC_lvc_IIN:'4500',DC_lvc_MAX:'4500',DC_sc_IIN:'12000',DC_sc_MAX:'12000',DC_hsc_IIN:'14500',DC_hsc_MAX:'14500',
-         DC_SC_RES:'58',PC_ICC:'3200000',PC_ICC_MAX:'4000000',PC_AICR:'3000000',
-         PC_CV:'4540000',PC_TICC:'3225000',DAEMON:'1',TPOLICY:'1',VER:'demo',
-         CONF_VPN_LOCK:'0',VPN_LOCK_STATE:'idle',CONF_LSP_FIX:'0',LSP_STATE:'',CONF_VOLTE_FIX:'0',VOLTE_STATE:'',CONF_QR_FIX:'0',QR_STATE:'',CONF_SMARTAE_TARGET:'185',CAM_STATE:'on 185',EFF_TARGET:'185',CONF_SHARPEN_CUT:'35',SHP_STATE:'on 35 16/16',EFF_SHARPEN:'35',CONF_BEAUTY_CUT:'30',BTY_STATE:'on 30',EFF_BEAUTY:'30',CONF_UW_EXP_MS:'910',CONF_UW_ISO_GAIN:'100',UW_STATE:'on exp=910 iso=100 fps=1',EFF_UW_EXP:'910',EFF_UW_ISO:'100',EFF_UW_FPS:'1',ADP_SUPPORT:'0',SIG_OPS:'',SIG_TYPES:'',SIG0_LTE:'',SIG1_LTE:'',SIG0_BAND:'',SIG1_BAND:'',SIG0_NR:'',SIG1_NR:'',FCM_STATE:'ok n=2 probe:ok',MCS_GMS:'0',VPN_BYP:'none',VPN_GMS_IN:'0',EXEC_UID:'0'};
+         DC_sc_RES:'58',PC_ICC:'3200000',PC_ICC_MAX:'4000000',PC_AICR:'1200000',
+         PC_CV:'4540000',PC_TICC:'3225000',PC_TAICR:'1000000',PC_CMAX:'3225000',PC_VMAX:'22000000',
+         PC_LOCK:'en: 0, target icc: 3225000 uA, target aicr: 1000000 uA',AICR_SLOT:'?',IF_VBUS:'lvc 0 sc 0 hsc 18500',
+         DAEMON:'1',TPOLICY:'1',VER:'demo',
+         CONF_MAX_IIN:'20000',CONF_IFACE_LANES:'dcp',
+         CONF_VPN_LOCK:'0',VPN_LOCK_STATE:'idle',CONF_REGION_MODE:'default',REGION_OPTB:'156',REGION_LOCALE:'CN',CONF_LSP_FIX:'0',LSP_STATE:'',CONF_THIRDPARTY_HOME:'0',CHARS:'default',TPH_STATE:'',CONF_VOLTE_FIX:'0',VOLTE_STATE:'',CONF_QR_FIX:'0',QR_STATE:'',CONF_EID_GUARD:'0',EID_STATE:'off',EID_LIVE:'factory',EID_MAPPED:'',CONF_SMARTAE_TARGET:'185',CAM_STATE:'on 185',EFF_TARGET:'185',CONF_SHARPEN_CUT:'35',SHP_STATE:'on 35 16/16',EFF_SHARPEN:'35',CONF_BEAUTY_CUT:'30',BTY_STATE:'on 30',EFF_BEAUTY:'30',CONF_UW_EXP_MS:'910',CONF_UW_ISO_GAIN:'100',UW_STATE:'on exp=910 iso=100 fps=1',EFF_UW_EXP:'910',EFF_UW_ISO:'100',EFF_UW_FPS:'1',ADP_SUPPORT:'0',SIG_OPS:'',SIG_TYPES:'',SIG0_LTE:'',SIG1_LTE:'',SIG0_BAND:'',SIG1_BAND:'',SIG0_NR:'',SIG1_NR:'',FCM_STATE:'ok n=2 probe:ok',MCS_GMS:'0',VPN_BYP:'none',VPN_GMS_IN:'0',EXEC_UID:'0'};
   } else {
     tick();
     timer = setInterval(function(){ if (!document.hidden) tick(); }, 3000);
+    // coming back to the panel refreshes it at once instead of waiting out the
+    // 3-second timer. Aligned to a quick tick: the resume itself should be
+    // instant, and the ~1 s identity sweep lands on its own next cadence.
+    document.addEventListener('visibilitychange', function(){
+      if (!document.hidden){ TICK_N = 1; tick(); }
+    });
   }
   render(); draw();
 }
@@ -593,10 +751,14 @@ function start(){
   $('tgPre').onclick = function(){ setKey('disable_preload', D.CONF_DISABLE_PRELOAD === '1' ? '0' : '1', this); };
   $('tgFcm').onclick = function(){ setKey('fcm_unlock', D.CONF_FCM_UNLOCK === '1' ? '0' : '1', this); };
   $('tgVlock').onclick = function(){ setKey('vpn_lock', D.CONF_VPN_LOCK === '1' ? '0' : '1', this); };
-  $('tgRb').onclick = function(){ setKey('region_bypass', D.CONF_REGION_BYPASS === '1' ? '0' : '1', this); };
+  // a <select> must not be used as the setKey feedback button: textContent is
+  // its option list, so the "…"/"✓ 已写入" swap would destroy the choices.
+  $('selRegion').onchange = function(){ setKey('region_mode', this.value, null); };
   $('tgLsp').onclick = function(){ setKey('lsp_fix', D.CONF_LSP_FIX === '1' ? '0' : '1', this); };
+  $('tgTph').onclick = function(){ setKey('thirdparty_home', D.CONF_THIRDPARTY_HOME === '1' ? '0' : '1', this); };
   $('tgVolte').onclick = function(){ setKey('volte_fix', D.CONF_VOLTE_FIX === '1' ? '0' : '1', this); };
   $('tgQr').onclick = function(){ setKey('qr_fix', D.CONF_QR_FIX === '1' ? '0' : '1', this); };
+  $('tgEid').onclick = function(){ setKey('eid_guard', D.CONF_EID_GUARD === '1' ? '0' : '1', this); };
   // SmartAE Target: clamp client-side to the same band the bridge enforces,
   // so a typo can never write a value the daemon would then silently rewrite.
   var camApply = function(btn){
@@ -646,9 +808,31 @@ function start(){
   };
   $('btnUwIso').onclick = function(){ uwIsoApply(this); };
   $('numUwIso').onkeydown = function(e){ if (e.key === 'Enter' || e.keyCode === 13) uwIsoApply($('btnUwIso')); };
+  var pages = {tabHome:'pageHome', tabCam:'pageCam'};
+  var showPage = function(tabId){
+    curPage = pages[tabId];
+    for (var t in pages){
+      document.getElementById(pages[t]).className = 'page' + (t === tabId ? ' on' : '');
+      document.getElementById(t).className = 'tab' + (t === tabId ? ' on' : '');
+    }
+    draw();
+    // curPage only steers the scope of the ticks that are already running: the
+    // camera page never shows the identity rows, so it always gets the quick
+    // one. A tab switch itself must not start a collection - the forced full
+    // poll here is what made camera->home stall for a second.
+  };
+  $('tabHome').onclick = function(){ showPage('tabHome'); };
+  $('tabCam').onclick = function(){ showPage('tabCam'); };
   $('selScroll').onchange = function(){ setKey('scroll_cap', this.value, this); };
   $('btnPause').onclick = async function(){ await ctl(D.PAUSED === '1' ? 'resume' : 'pause'); tick(); };
   $('btnRestart').onclick = async function(){ var b = this; b.textContent = '…'; await ctl('restart'); setTimeout(function(){ b.textContent = '重启'; tick(); }, 1200); };
+})();
+(function(){
+  // the poll catches up the moment the finger leaves a field; the pause itself
+  // is read from activeElement inside tick(), so this only restores urgency
+  document.addEventListener('focusout', function(){
+    setTimeout(function(){ if (!fieldHasFocus()) tick(); }, 120);
+  });
 })();
 start();
 </script>

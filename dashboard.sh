@@ -1,12 +1,33 @@
 #!/system/bin/sh
-# Honor Charge Unlock - dashboard data collector
+# Honor Charge Unlock - dashboard data collector (batch-read rewrite, candidate)
 # Prints KEY=VALUE lines consumed by webroot/index.html
+#
+# $1 = quick | full (default full, so any caller that passes nothing keeps the
+# old behaviour):
+#   quick: charging nodes + conf echo + camera live readouts - the panel polls
+#          this every 3 s, so it has to stay cheap.
+#   full:  quick + the binder-costly identity rows (telephony registry dump,
+#          connectivity dump, pm, ss, the eSIM sha, the /proc maps scan). Those
+#          change per boot/SIM/adapter event, not per second.
+#
+# Why one awk process reads the nodes: every $(cat node) is two fork+exec on
+# toybox (measured 8.9 ms for one command substitution, 12.3 ms for
+# cat|head, 0.2 ms for a builtin). The per-field readers cost ~250 forks per
+# poll - about 2 s of pure process spawning on this SoC, which is what stalled
+# the WebUI when an input got focus or Apply was tapped.
+MODDIR=${0%/*}
+. "$MODDIR/state.sh"          # read-only here: never migrates from the panel
 B=/sys/class/power_supply/battery
 U=/sys/class/power_supply/usb
 P=/sys/class/power_supply/primary_chg
 DC=/sys/class/hw_power/charger
 IF=/sys/class/hw_power/interface
 AD=/sys/class/hw_power/adapter
+CONF=$ST/conf
+MODPROP=/data/adb/modules/honor_charge_unlock/module.prop
+
+SCOPE=full
+case "$1" in quick|full) SCOPE=$1 ;; esac
 
 # WebUI exec may run unprivileged depending on KSU state; re-exec through su
 # once (first denial falls back to limited data instead of looping)
@@ -15,85 +36,165 @@ if [ "$(id -u 2>/dev/null)" != "0" ] && [ "$2" != "rootretry" ]; then
   [ $? -eq 0 ] && exit 0
   # su denied/absent: fall through and serve whatever is globally readable
 fi
-gv() { cat "$1" 2>/dev/null | head -c 300; }
 echo "EXEC_UID=$(id -u 2>/dev/null)"
-ml() { gv "$1" | tr '\n' ';'; }
-ub() { # uevent field
-  sed -n "s/^$2=//p" "$1" 2>/dev/null | head -n 1
+
+# ---- bulk reader -----------------------------------------------------------
+# list format: KEY|path|mode
+#   mode empty  -> first line, cut at 300 chars   (was: cat | head -c 300)
+#   mode m      -> all lines joined by one space  (was: cat | tr '\n' ';' | tr ';' ' ')
+#   mode l      -> last line                       (was: tail -n 1)
+#   mode FIELD  -> value of the first line starting with "FIELD="
+#                 (was: sed -n "s/^FIELD=//p" | head -n 1)
+awk '
+BEGIN { FS = "|" }
+NF < 2 { next }
+{
+  key = $1; path = $2; mode = $3
+  if (mode == "m") {
+    out = ""; sep = ""
+    while ((getline ln < path) > 0) { if (ln == "") continue; out = out sep ln; sep = " " }
+    close(path); out = substr(out, 1, 300)
+  } else if (mode == "l") {
+    out = ""
+    while ((getline ln < path) > 0) out = ln
+    close(path)
+  } else if (mode == "") {
+    if ((getline ln < path) > 0) out = substr(ln, 1, 300); else out = ""
+    close(path)
+  } else {
+    pre = mode "="; n = length(pre); out = ""
+    while ((getline ln < path) > 0) if (index(ln, pre) == 1) { out = substr(ln, n + 1); break }
+    close(path)
+  }
+  v[key] = out
+  print key "=" out
 }
-
-echo "B_STATUS=$(ub "$B/uevent" POWER_SUPPLY_STATUS)"
-echo "B_TEMP=$(ub "$B/uevent" POWER_SUPPLY_TEMP)"
-echo "B_CAP=$(ub "$B/uevent" POWER_SUPPLY_CAPACITY)"
-echo "B_VOLT=$(ub "$B/uevent" POWER_SUPPLY_VOLTAGE_NOW)"
-echo "B_CUR=$(ub "$B/uevent" POWER_SUPPLY_CURRENT_NOW)"
-echo "B_CUR_NODE=$(cat $B/current_now 2>/dev/null | head -n 1)"
-echo "B_CYCLE=$(ub "$B/uevent" POWER_SUPPLY_CYCLE_COUNT)"
-echo "B_FCC=$(ub "$B/uevent" POWER_SUPPLY_CHARGE_FULL)"
-echo "B_FCC_DESIGN=$(ub "$B/uevent" POWER_SUPPLY_CHARGE_FULL_DESIGN)"
-echo "B_SOH=$(gv $B/state_of_health)"
-
-echo "USB_ONLINE=$(gv $U/online)"
-echo "USB_TYPE=$(gv $U/type)"
-echo "USB_CMAX=$(gv $U/current_max)"
-echo "USB_VMAX=$(gv $U/voltage_max)"
-
-echo "PROTO=$(ml $IF/enable_charger | tr ';' ' ')"
-echo "IIN_LIMIT=$(ml $IF/iin_limit | tr ';' ' ')"
-echo "CHG_MODE=$(ml $IF/chg_mode | tr ';' ' ')"
-echo "ADAP_VOLT=$(ml $IF/adap_volt | tr ';' ' ')"
-echo "IBUS=$(ml $IF/ibus | tr ';' ' ')"
-echo "HOTA=$(ml $IF/hota_iin_limit | tr ';' ' ')"
-
-echo "ADP_TYPE=$(gv $AD/adapter_type)"
-echo "ADP_SUPPORT=$(gv $AD/support_mode)"
-echo "ADP_VMAX=$(gv $AD/max_volt)"
-echo "ADP_IMAX=$(gv $AD/max_cur)"
-echo "ADP_VENDOR=$(gv $AD/vendor_id)"
-echo "ADP_FW=$(gv $AD/fwver)"
-echo "ADP_POWER=$(gv $AD/power)"
-# current input type: MTK usb_type marks the detected type with [brackets]
-USBT_RAW=$(gv $P/usb_type)
-echo "USBT_RAW=$USBT_RAW"
-echo "PTYPE=$(cat $P/type 2>/dev/null | head -c 40)"
-echo "UEV_TYPE=$(grep -oE 'POWER_SUPPLY_TYPE=[^ ]*' /sys/class/power_supply/usb/uevent 2>/dev/null | head -n1 | cut -d= -f2)"
-CUR_IN=$(echo "$USBT_RAW" | grep -oE "\[[A-Za-z0-9]+\]" | head -n 1 | tr -d "[]")
-echo "CUR_IN=$CUR_IN"
-ADP_HS=$(cat $AD/adapter_type 2>/dev/null | head -n1 | tr -d "
-"):$(cat $AD/support_mode 2>/dev/null | head -n1 | tr -d "
-"):$(cat $AD/max_volt 2>/dev/null | head -n1 | tr -d "
-"):$(cat $AD/max_cur 2>/dev/null | head -n1 | tr -d "
-")
-echo "ADP_HS=$ADP_HS"
-
-for p in '' '_sc' '_hsc'; do
-  d="$DC/direct_charger$p"
-  n=$(echo "$p" | tr -d '_')
-  [ -z "$n" ] && n=lvc
-  echo "DC_${n}_IIN=$(gv $d/iin_thermal)"
-  echo "DC_${n}_MAX=$(gv $d/iin_thermal_ichg_control)"
-  echo "DC_${n}_SUCC=$(gv $d/direct_charge_succ)"
-  echo "DC_${n}_DETECT=$(gv $d/adaptor_detect)"
-  echo "DC_${n}_IADAPT=$(gv $d/iadapt)"
-  echo "DC_${n}_RES=$(gv $d/full_path_resistance)"
-done
-echo "SC_STATE=$(gv $DC/direct_charger_sc/sc_state)"
-echo "HSC_STATE=$(gv $DC/direct_charger_hsc/hsc_state)"
-echo "LVC_STATE=$(gv $DC/direct_charger/lvc_state)"
-
-echo "PC_ICC=$(gv $P/constant_charge_current)"
-echo "PC_ICC_MAX=$(gv $P/constant_charge_current_max)"
-echo "PC_AICR=$(gv $P/input_current_limit)"
-echo "PC_CV=$(gv $P/constant_charge_voltage)"
-echo "PC_TICC=$(gv $P/target_icc_uA)"
-echo "PC_USTYPE=$(gv $P/usb_type)"
-echo "PC_ONLINE=$(gv $P/online)"
-echo "PC_STATUS=$(gv $P/status)"
+END {
+  # MTK usb_type marks the detected type with [brackets]
+  if (match(v["USBT_RAW"], /\[[A-Za-z0-9]+\]/))
+    print "CUR_IN=" substr(v["USBT_RAW"], RSTART + 1, RLENGTH - 2)
+  else
+    print "CUR_IN="
+  print "ADP_HS=" v["ADP_TYPE"] ":" v["ADP_SUPPORT"] ":" v["ADP_VMAX"] ":" v["ADP_IMAX"]
+  # The ceiling actually applied is primary_chg/input_current_limit: the kernel
+  # programs the charge IC from the arbitration result (M:ilim eff = min over the
+  # enabled voters), so that is the number worth naming a lane after.
+  # target_aicr_uA is not it - same-frame reads at 2026-11-03 21:53 UTC were
+  # input_current_limit=1200000 while target_aicr_uA=1000000 and our own dcp row
+  # already read 20000, so a lane matched against the target names a lane that is
+  # driving nothing. Report every row numerically equal to the applied value (mA):
+  # one number can sit in two rows (1200 matched both the vendor dcp thermal vote
+  # and wl_hsc), so this is arithmetic, not "the lane the module unlocked".
+  t = v["PC_AICR"] + 0; l = v["IIN_LIMIT"]
+  if (t <= 0 || l == "") print "AICR_SLOT=?"
+  else {
+    n = split(l, a, " "); hit = ""
+    for (i = 1; i < n; i += 2) if (a[i + 1] + 0 == t / 1000) hit = hit ((hit == "") ? "" : ",") a[i]
+    print "AICR_SLOT=" (hit == "" ? "?" : hit)
+  }
+}' 2>/dev/null <<EOF
+B_STATUS|$B/uevent|POWER_SUPPLY_STATUS
+B_TEMP|$B/uevent|POWER_SUPPLY_TEMP
+B_CAP|$B/uevent|POWER_SUPPLY_CAPACITY
+B_VOLT|$B/uevent|POWER_SUPPLY_VOLTAGE_NOW
+B_CUR|$B/uevent|POWER_SUPPLY_CURRENT_NOW
+B_CYCLE|$B/uevent|POWER_SUPPLY_CYCLE_COUNT
+B_FCC|$B/uevent|POWER_SUPPLY_CHARGE_FULL
+B_FCC_DESIGN|$B/uevent|POWER_SUPPLY_CHARGE_FULL_DESIGN
+UEV_TYPE|$U/uevent|POWER_SUPPLY_TYPE
+B_CUR_NODE|$B/current_now
+B_SOH|$B/state_of_health
+USB_ONLINE|$U/online
+USB_TYPE|$U/type
+USB_CMAX|$U/current_max
+USB_VMAX|$U/voltage_max
+ADP_TYPE|$AD/adapter_type
+ADP_SUPPORT|$AD/support_mode
+ADP_VMAX|$AD/max_volt
+ADP_IMAX|$AD/max_cur
+ADP_VENDOR|$AD/vendor_id
+ADP_FW|$AD/fwver
+ADP_POWER|$AD/power
+USBT_RAW|$P/usb_type
+PTYPE|$P/type
+PC_ICC|$P/constant_charge_current
+PC_ICC_MAX|$P/constant_charge_current_max
+PC_AICR|$P/input_current_limit
+PC_CV|$P/constant_charge_voltage
+PC_TICC|$P/target_icc_uA
+PC_TAICR|$P/target_aicr_uA
+PC_CMAX|$P/current_max
+PC_VMAX|$P/voltage_max
+PC_LOCK|$P/lock_icc_and_aicr_en
+PC_USTYPE|$P/usb_type
+PC_ONLINE|$P/online
+PC_STATUS|$P/status
+SC_STATE|$DC/direct_charger_sc/sc_state
+HSC_STATE|$DC/direct_charger_hsc/hsc_state
+LVC_STATE|$DC/direct_charger/lvc_state
+PROTO|$IF/enable_charger|m
+IIN_LIMIT|$IF/iin_limit|m
+CHG_MODE|$IF/chg_mode|m
+ADAP_VOLT|$IF/adap_volt|m
+IBUS|$IF/ibus|m
+HOTA|$IF/hota_iin_limit|m
+IF_VBUS|$IF/vbus|m
+DC_lvc_IIN|$DC/direct_charger/iin_thermal
+DC_lvc_MAX|$DC/direct_charger/iin_thermal_ichg_control
+DC_lvc_SUCC|$DC/direct_charger/direct_charge_succ
+DC_lvc_DETECT|$DC/direct_charger/adaptor_detect
+DC_lvc_IADAPT|$DC/direct_charger/iadapt
+DC_lvc_RES|$DC/direct_charger/full_path_resistance
+DC_sc_IIN|$DC/direct_charger_sc/iin_thermal
+DC_sc_MAX|$DC/direct_charger_sc/iin_thermal_ichg_control
+DC_sc_SUCC|$DC/direct_charger_sc/direct_charge_succ
+DC_sc_DETECT|$DC/direct_charger_sc/adaptor_detect
+DC_sc_IADAPT|$DC/direct_charger_sc/iadapt
+DC_sc_RES|$DC/direct_charger_sc/full_path_resistance
+DC_hsc_IIN|$DC/direct_charger_hsc/iin_thermal
+DC_hsc_MAX|$DC/direct_charger_hsc/iin_thermal_ichg_control
+DC_hsc_SUCC|$DC/direct_charger_hsc/direct_charge_succ
+DC_hsc_DETECT|$DC/direct_charger_hsc/adaptor_detect
+DC_hsc_IADAPT|$DC/direct_charger_hsc/iadapt
+DC_hsc_RES|$DC/direct_charger_hsc/full_path_resistance
+CONF_SCREEN_ON_UNLOCK|$CONF|screen_on_unlock
+CONF_UNLOCK_OFF|$CONF|unlock_when_screen_off
+CONF_LAUNCH_BOOST|$CONF|launch_boost
+CONF_SCROLL_CAP|$CONF|scroll_cap
+CONF_MAX_IIN|$CONF|max_iin
+CONF_IFACE_LANES|$CONF|iface_lanes
+CONF_DISABLE_PRELOAD|$CONF|disable_preload
+CONF_FCM_UNLOCK|$CONF|fcm_unlock
+CONF_REGION_MODE|$CONF|region_mode
+CONF_VPN_LOCK|$CONF|vpn_lock
+CONF_LSP_FIX|$CONF|lsp_fix
+CONF_THIRDPARTY_HOME|$CONF|thirdparty_home
+CONF_VOLTE_FIX|$CONF|volte_fix
+CONF_QR_FIX|$CONF|qr_fix
+CONF_EID_GUARD|$CONF|eid_guard
+CONF_SMARTAE_TARGET|$CONF|smartae_target
+CONF_SHARPEN_LVL|$CONF|sharpen_level
+CONF_BEAUTY_CUT|$CONF|beauty_cut
+CONF_UW_EXP_MS|$CONF|uw_exp_ms
+CONF_UW_ISO_GAIN|$CONF|uw_iso_gain
+FCM_STATE|$ST/fcm|l
+VPN_LOCK_STATE|$ST/vpn|l
+LSP_STATE|$ST/lsp|l
+TPH_STATE|$ST/tph|l
+VOLTE_STATE|$ST/volte|l
+QR_STATE|$ST/qr|l
+EID_STATE|$ST/eid|l
+CAM_STATE|$ST/cam|l
+SHP_STATE|$ST/shp|l
+BTY_STATE|$ST/bty|l
+UW_STATE|$ST/uwa|l
+VER|$MODPROP|version
+EOF
 
 # daemon: pidfile validated against cmdline, with pgrep fallback
 # (a stale pidfile or a WebUI context that cannot read /data/adb must not
 #  show 守护进程 ✕ while the daemon is actually running)
-PID=$(cat /data/adb/honor_charge_unlock.pid 2>/dev/null)
+PID=$(head -n 1 "$ST/pid" 2>/dev/null)
 DAEMON=0
 if [ -n "$PID" ] && [ -d "/proc/$PID" ] && grep -q "service.sh" "/proc/$PID/cmdline" 2>/dev/null; then
   DAEMON=1
@@ -101,71 +202,87 @@ elif pgrep -f "[h]onor_charge_unlock/service.sh" >/dev/null 2>&1; then
   DAEMON=1
 fi
 echo "DAEMON=$DAEMON"
-[ -f /data/adb/honor_charge_unlock.paused ] && echo "PAUSED=1" || echo "PAUSED=0"
+[ -f $ST/paused ] && echo "PAUSED=1" || echo "PAUSED=0"
 [ -f /data/vendor/thermal/thermal.conf ] && echo "TPOLICY=1" || echo "TPOLICY=0"
-[ -f /data/adb/honor_charge_unlock.thermal_mounted ] && echo "TMARK=1" || echo "TMARK=0"
+[ -f $ST/thermal_mounted ] && echo "TMARK=1" || echo "TMARK=0"
 [ -f /data/local/tmp/.hcu_lb_active ] && echo "LB_ACTIVE=1" || echo "LB_ACTIVE=0"
-# MCS long-connection state (the wall/VPN layer, separate from the ROM-side probe unlock)
-# VPN capture state: is com.google.android.gms inside a VPN's uid list, and is
-# that VPN bypassable (MCS would unwrap it -> direct connect -> dead in CN)
-GMS_UID=$(pm list packages -U 2>/dev/null | grep -E '^package:com.google.android.gms ' | head -n 1 | sed 's/.*uid://;s/[^0-9].*//')
+
+# live region identity in the prop area right now - post-fs-data pins these at
+# boot, so a mode change shows up here only after the next reboot
+echo "REGION_OPTB=$(getprop msc.config.optb 2>/dev/null)"
+echo "REGION_LOCALE=$(getprop ro.product.locale.region 2>/dev/null)"
+# characteristics is the thirdparty_home lever: post-fs-data masks it to "phone"
+# for the pre-zygote window only, so on a normal boot this reads the stock value
+echo "CHARS=$(getprop ro.build.characteristics 2>/dev/null)"
+
+# ---- camera live readouts ---------------------------------------------------
+# What the HAL actually resolves right now through /odm and /vendor, so the
+# panel shows the effective value and not the requested one. Bind mounts show
+# up here because every path is read through its mount point.
+echo "EFF_TARGET=$(awk '/<Target>/ && match($0, /<Target>[0-9]+<\/Target>/) { print substr($0, RSTART + 8, RLENGTH - 17); exit }' /odm/etc/camera/smartae/back/SmartAE.xml 2>/dev/null)"
+SHP_LVL=$(awk -F= '$1 == "sharpen_level" { print $2; exit }' "$CONF" 2>/dev/null)
+SHP_GEN=$ST/camfix/ISP_param_lv$SHP_LVL.db
+SHP_TGT=/odm/bin/crossbuild/DataSet/SQLiteModule/db/tuning_DB/calvrns_m010_ldy/ISP_param.db
+# An inode compare is bind-mount aware and cheap enough for the panel poll;
+# hashing the 12MB DB on every poll is not.
+if [ -f "$SHP_GEN" ] && [ "$(stat -c %i "$SHP_TGT" 2>/dev/null)" = "$(stat -c %i "$SHP_GEN" 2>/dev/null)" ]; then
+  echo "EFF_SHARPEN=$SHP_LVL"
+else
+  echo "EFF_SHARPEN="
+fi
+echo "EFF_BEAUTY=$(awk 'match($0, /bty[0-9]+/) { print substr($0, RSTART + 3, RLENGTH - 3); exit }' /odm/etc/camera/hwbeauty/front/hwbeauty_params.xml 2>/dev/null)"
+echo "EFF_BEAUTY_LP=$(awk 'match($0, /bty[0-9]+/) { print substr($0, RSTART + 3, RLENGTH - 3); exit }' /odm/etc/camera/hwbeauty/front/hwbeauty_params_lp.xml 2>/dev/null)"
+UW_DB=/odm/bin/crossbuild/DataSet/SQLiteModule/db/ae/ParameterDB_ae.db
+UW_SO=/vendor/lib64/mt6993/libmtkcam_metastore.so
+UW_E=$(od -An -tu4 -j 4265560 -N4 "$UW_DB" 2>/dev/null | tr -d ' \n')
+case "$UW_E" in ''|*[!0-9]*) ;; *) echo "EFF_UW_EXP=$((UW_E / 1000))" ;; esac
+UW_I=$(od -An -tu4 -j 4265568 -N4 "$UW_DB" 2>/dev/null | tr -d ' \n')
+case "$UW_I" in ''|*[!0-9]*) ;; *) echo "EFF_UW_ISO=$((UW_I * 100 / 72000))" ;; esac
+UW_W=$(od -An -tx4 -j 1335656 -N4 "$UW_SO" 2>/dev/null | tr -d ' \n')
+case "$UW_W" in
+  528000a8|528000A8) echo "EFF_UW_FPS=5" ;;
+  52800048) echo "EFF_UW_FPS=2" ;;
+  52800028) echo "EFF_UW_FPS=1" ;;
+  *) echo "EFF_UW_FPS=0" ;;
+esac
+
+[ "$SCOPE" = quick ] && exit 0
+
+# ---- full scope: the binder-costly identity rows ----------------------------
+GMS_UID=$(pm list packages -U 2>/dev/null | grep -m1 -oE 'com\.google\.android\.gms uid:[0-9]+' | sed 's/.*uid://')
 echo "GMS_UID=${GMS_UID:-0}"
 VPN_BYP=none
 VPN_GMS_IN=0
-VPN_BLOCK=$(dumpsys connectivity 2>/dev/null | grep -E 'VPN CONNECTED' | head -5)
-if [ -n "$VPN_BLOCK" ]; then
-  VPN_BYP=$(dumpsys connectivity 2>/dev/null | grep -m1 -oE 'bypassable=(true|false)' | cut -d= -f2)
+# one dumpsys call and three reads of its file: the old shape paid the binder
+# dump itself three times per poll
+CV=/data/local/tmp/.hcu_conn
+dumpsys connectivity > "$CV" 2>/dev/null
+if grep -q 'VPN CONNECTED' "$CV" 2>/dev/null; then
+  VPN_BYP=$(grep -m1 -oE 'bypassable=(true|false)' "$CV" 2>/dev/null | cut -d= -f2)
   if [ -n "${GMS_UID:-}" ] && [ "$GMS_UID" -gt 10000 ] 2>/dev/null; then
     # NetworkAgentInfo lines are huge single lines: grep truncates them, awk does not
-    VPN_GMS_IN=$(dumpsys connectivity 2>/dev/null | awk -v u="$GMS_UID" '/Uids: </{s=$0; sub(/.*Uids: </,"",s); sub(/>.*/,"",s); n=split(s,arr,","); for(i=1;i<=n;i++){gsub(/[{} ]/,"",arr[i]); m=split(arr[i],r,"-"); if(m==1&&r[1]+0==u){print 1;exit} if(m==2&&r[1]+0<=u&&u+0<=r[2]+0){print 1;exit}} print 0; exit}')
+    VPN_GMS_IN=$(awk -v u="$GMS_UID" '/Uids: </{s=$0; sub(/.*Uids: </,"",s); sub(/>.*/,"",s); n=split(s,arr,","); for(i=1;i<=n;i++){gsub(/[{} ]/,"",arr[i]); m=split(arr[i],r,"-"); if(m==1&&r[1]+0==u){print 1;exit} if(m==2&&r[1]+0<=u&&u+0<=r[2]+0){print 1;exit}} print 0; exit}' "$CV" 2>/dev/null)
     [ -n "$VPN_GMS_IN" ] || VPN_GMS_IN=0
   fi
 fi
+rm -f "$CV"
 echo "VPN_BYP=$VPN_BYP"
 echo "VPN_GMS_IN=$VPN_GMS_IN"
 # count MCS (5228) sockets owned by the GMS uid: >0 means the push channel is live
 MCS_GMS=0
 if [ -n "${GMS_UID:-}" ] && [ "$GMS_UID" -gt 10000 ] 2>/dev/null; then
-  MCS_GMS=$(ss -tnpe 2>/dev/null | grep ':5228 ' | grep -c "uid:$GMS_UID")
+  MCS_GMS=$(ss -tnpe 2>/dev/null | awk -v u="$GMS_UID" 'index($0, ":5228 ") && index($0, "uid:" u) { n++ } END { print n + 0 }')
 fi
 echo "MCS_GMS=$MCS_GMS"
-SC3=0
-i=0
-while [ $i -lt 3 ]; do
-  v=$(cat $DC/direct_charger_sc/iin_thermal 2>/dev/null)
-  case $v in ''|*[!0-9]*) ;; *) [ "$v" -gt "$SC3" ] && SC3=$v ;; esac
-  sleep 0.15
-  i=$((i+1))
-done
-echo "DC_SC_IIN3=$SC3"
 
-# conf keys for the WebUI switches
-CONF=/data/adb/honor_charge_unlock.conf
-cg() { sed -n "s/^$1=//p" "$CONF" 2>/dev/null | head -n 1; }
-echo "CONF_SCREEN_ON_UNLOCK=$(cg screen_on_unlock)"
-echo "CONF_UNLOCK_OFF=$(cg unlock_when_screen_off)"
-echo "CONF_LAUNCH_BOOST=$(cg launch_boost)"
-echo "CONF_SCROLL_CAP=$(cg scroll_cap)"
-echo "CONF_DISABLE_PRELOAD=$(cg disable_preload)"
-echo "CONF_FCM_UNLOCK=$(cg fcm_unlock)"
-echo "CONF_REGION_BYPASS=$(cg region_bypass)"
-echo "CONF_VPN_LOCK=$(cg vpn_lock)"
-echo "CONF_LSP_FIX=$(cg lsp_fix)"
-echo "CONF_VOLTE_FIX=$(cg volte_fix)"
-echo "CONF_QR_FIX=$(cg qr_fix)"
-echo "CONF_SMARTAE_TARGET=$(cg smartae_target)"
-echo "CONF_SHARPEN_LVL=$(cg sharpen_level)"
-echo "CONF_BEAUTY_CUT=$(cg beauty_cut)"
-echo "CONF_UW_EXP_MS=$(cg uw_exp_ms)"
-echo "CONF_UW_ISO_GAIN=$(cg uw_iso_gain)"
 # per-SIM real signal readout (v1.9.7): panel-only cost — these few greps run
 # just while the WebUI is polling; closing the panel costs nothing. (The
 # registry dump is ~370KB, over mksh's 128KB single-argument limit, so it goes
 # through a temp file and is never passed as a printf/echo argument.)
 RG=/data/local/tmp/.hcu_reg
 dumpsys telephony.registry > "$RG" 2>/dev/null
-echo "SIG_OPS=$(getprop gsm.operator.alpha 2>/dev/null | tr -d '\r')"
-echo "SIG_TYPES=$(getprop gsm.network.type 2>/dev/null | tr -d '\r')"
+echo "SIG_OPS=$(getprop gsm.operator.alpha 2>/dev/null)"
+echo "SIG_TYPES=$(getprop gsm.network.type 2>/dev/null)"
 SL=$(grep -oE 'mLte=CellSignalStrengthLte: rssi=[^ ]+ rsrp=[^ ]+ rsrq=[^ ]+ rssnr=[^ ]+' "$RG")
 SB=$(grep -oE 'mCellIdentity=CellIdentityLte:\{[^{]*mBands=\[[0-9]+\]' "$RG" | grep -oE '\[[0-9]+\]')
 SN=$(grep -oE 'mNr=CellSignalStrengthNr:\{[^}]*ssRsrp = [0-9-]+' "$RG" | grep -oE 'ssRsrp = [0-9-]+' | cut -d' ' -f3)
@@ -180,58 +297,18 @@ echo "SIG1_NR=$(printf '%s\n' "$SN" | sed -n 2p | tr -d ' ')"
 Q=$(grep -oE 'mPreciseDataConnectionStates=\{.*' "$RG")
 echo "SIG0_QCI=$(printf '%s\n' "$Q" | sed -n 1p | grep -oE 'qosClassId=[0-9]+' | cut -d= -f2 | sort -u | tr '\n' '+' | sed 's/+*$//')"
 echo "SIG1_QCI=$(printf '%s\n' "$Q" | sed -n 2p | grep -oE 'qosClassId=[0-9]+' | cut -d= -f2 | sort -u | tr '\n' '+' | sed 's/+*$//')"
-echo "FCM_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.fcm 2>/dev/null)"
-# vpn_lock live state: off / idle (watching for a tunnel) / locked <pkg>
-echo "VPN_LOCK_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.vpn 2>/dev/null)"
-# lsp_fix live state: off / "masked <ts>" (locale masked, awaiting restore) /
-# "restored <ts>" (zh-CN back) - one line per boot from post-fs-data/service
-echo "LSP_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.lsp 2>/dev/null)"
-# volte_fix live state: off / wait-sim / "ok <numerics> [inserted=N]" /
-# "radio-cycle" / "err" - ims-APN watcher for carriers missing their ims row
-echo "VOLTE_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.volte 2>/dev/null)"
-# qr_fix live state: off / on / mount-failed (QRFUSION bind mount)
-echo "QR_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.qr 2>/dev/null)"
-# smartae_target live state: off / "on <n>" / "mount-failed <n>" + the Target
-# value the camera HAL actually reads right now (bind-mount aware), so the panel
-# can show what is live rather than what was requested
-echo "CAM_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.cam 2>/dev/null)"
-echo "EFF_TARGET=$(grep -o '<Target>[0-9]*</Target>' /odm/etc/camera/smartae/back/SmartAE.xml 2>/dev/null | head -n 1 | tr -dc '0-9')"
-# sharpen_level live state: off / "on <tier>" / "unsupported|patch-failed|
-# mount-failed <tier>" + proof that /odm now resolves to the generated DB. An
-# inode compare is bind-mount aware and cheap enough for the panel poll; hashing
-# the 12MB DB on every poll is not.
-SHP_LVL=$(cg sharpen_level)
-SHP_GEN=/data/adb/camfix/ISP_param_lv$SHP_LVL.db
-echo "SHP_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.shp 2>/dev/null)"
-SHP_TGT=/odm/bin/crossbuild/DataSet/SQLiteModule/db/tuning_DB/calvrns_m010_ldy/ISP_param.db
-if [ -f "$SHP_GEN" ] && [ "$(stat -c %i "$SHP_TGT" 2>/dev/null)" = "$(stat -c %i "$SHP_GEN" 2>/dev/null)" ]; then
-  echo "EFF_SHARPEN=$SHP_LVL"
-else
-  echo "EFF_SHARPEN="
-fi
-# beauty_cut live state: off / "on <cut>" / "mount-failed <cut>" + the cut the
-# front beauty engine actually reads right now (marker sits on the file head, so
-# grep -m1 never scans the whole tuning file)
-echo "BTY_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.bty 2>/dev/null)"
-echo "EFF_BEAUTY=$(grep -am1 -o 'bty[0-9]*' /odm/etc/camera/hwbeauty/front/hwbeauty_params.xml 2>/dev/null | tr -dc '0-9')"
-# uw_exp_ms/uw_iso_gain live state: off / "on exp=.. iso=.. fps=.." /
-# "mount-failed ..." / "unsupported ...", plus what the camera HAL actually
-# reads right now: the AE pline 311 last-anchor eMax (us) and isoMax, and the
-# metastore target-fps immediate (stock 5 / patched 2 / patched 1). Values are
-# read through the /odm + /vendor paths, so bind mounts are reflected.
-UW_DB=/odm/bin/crossbuild/DataSet/SQLiteModule/db/ae/ParameterDB_ae.db
-UW_SO=/vendor/lib64/mt6993/libmtkcam_metastore.so
-echo "UW_STATE=$(tail -n 1 /data/adb/honor_charge_unlock.uwa 2>/dev/null)"
-UW_E=$(od -An -tu4 -j 4265560 -N4 "$UW_DB" 2>/dev/null | tr -d ' \n')
-case "$UW_E" in ''|*[!0-9]*) ;; *) echo "EFF_UW_EXP=$((UW_E / 1000))" ;; esac
-UW_I=$(od -An -tu4 -j 4265568 -N4 "$UW_DB" 2>/dev/null | tr -d ' \n')
-case "$UW_I" in ''|*[!0-9]*) ;; *) echo "EFF_UW_ISO=$((UW_I * 100 / 72000))" ;; esac
-UW_W=$(od -An -tx4 -j 1335656 -N4 "$UW_SO" 2>/dev/null | tr -d ' \n')
-case "$UW_W" in
-  528000a8|528000A8) echo "EFF_UW_FPS=5" ;;
-  52800048) echo "EFF_UW_FPS=2" ;;
-  52800028) echo "EFF_UW_FPS=1" ;;
-  *) echo "EFF_UW_FPS=0" ;;
-esac
-echo "VER=$(grep '^version=' /data/adb/modules/honor_charge_unlock/module.prop 2>/dev/null | cut -d= -f2)"
+# eid_guard live state: off / on / unsupported / mount-failed / patch-failed /
+# missing. EID_LIVE reads the sha through the /system path, so it reports what
+# com.android.phone would actually dlopen: "patched" only while the bind mount is
+# live, "factory" the moment it is gone (same trick as the camfix read-back).
+EID_TGT=/system/lib64/liboeminfoInf_esim.so
+EID_LIVE=$(sha256sum "$EID_TGT" 2>/dev/null | cut -c1-8)
+if [ "$EID_LIVE" = "faf613c5" ]; then echo "EID_LIVE=patched"
+elif [ "$EID_LIVE" = "02fa215f" ]; then echo "EID_LIVE=factory"
+else echo "EID_LIVE=absent"; fi
+# who has the lib mapped: the class only loads on a SIM state change, so "none"
+# is the normal resting state (and the reason a toggle can land without a reboot).
+# One grep over the whole glob - a per-pid loop would run on every panel poll.
+echo "EID_MAPPED=$(grep -al liboeminfoInf_esim /proc/[0-9]*/maps 2>/dev/null | cut -d/ -f3 | tr '\n' ' ')"
+
 echo "TS=$(date +%s)"
