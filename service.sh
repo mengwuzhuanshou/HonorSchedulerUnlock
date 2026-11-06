@@ -13,6 +13,8 @@ PIDF=$ST/pid
 BATT_UE=/sys/class/power_supply/battery/uevent
 IFACE=/sys/class/hw_power/interface
 DC=/sys/class/hw_power/charger
+AICR=/sys/class/power_supply/primary_chg/input_current_limit
+ICHRG=/sys/class/power_supply/primary_chg/constant_charge_current
 
 # ---------- config ----------
 screen_on_unlock=1
@@ -37,6 +39,37 @@ max_iin=20000
 # the module writes no input-current vote at all.
 iface_lanes="dcp"
 
+# PD ceiling push. AICR and ICHG are the charger-IC *result* nodes: the kernel
+# charger_control 'default' voter re-asserts 1400mA / 2300mA every ~10s (battery
+# in the 10-44.9C JEITA band), so voting lanes alone never moves them past the
+# min. Read-before-write, re-assert only after the OS pulls them back -> about
+# one write per 10s, not a per-cycle loop. Measured on the 65W PD head (9V/3A
+# PDO): AICR 3A + ICHG 4A -> battery 2.98 -> 3.97A, ibus 1.80 -> 2.53A, input
+# 15.7 -> 22W, 34.9 -> 37.1C. 4A equals constant_charge_current_max, the BUCK
+# path ceiling (2026-11-05); above the PD contract the source caps the result.
+aicr_unlock=1
+aicr_target=3000000
+ichg_unlock=1
+ichg_target=4000000
+# Release the push at this battery temp (degC*10). JEITA t3=45C already drops
+# ICHG to 1750mA / CV 4080mV and t4=50C stops charging; stop just before that
+# band so the firmware ladder, not our write, owns it.
+pd_temp_guard=440
+
+# Direct-charge (PPS/SCP/UFCS) battery-side CC ceiling. primary_chg/
+# constant_charge_current does NOT bound this path: the hsc 4:1 pump follows
+# dc_para's volt_para table, and with a 3.2A PPS head the table's 4400mV row
+# (7800mA) - not the adapter - was the mid/high-SoC limit (36-37.6W measured).
+# The nine dc_data sources min-aggregate to 12800 (adapter 3200 x4) / 13200
+# (cable) / 14500 (battery, thermal), so anything up to 13200 is reachable.
+# Rows above dc_volt_vbat_cv are the CV tail and are never raised. Only raises,
+# never lowers, and temp_para still steps the current down from 44C.
+dc_volt_unlock=1
+dc_volt_ichg=13200
+dc_volt_groups="volt_para2,volt_para3"
+dc_volt_vbat_cv=4500
+DCPARA=/sys/kernel/debug/power_debug
+
 if [ ! -f "$CONF" ]; then
   cat > "$CONF" <<EOF
 # Honor Charge Unlock config (values take effect after daemon restart or reboot)
@@ -52,6 +85,31 @@ poll_interval=0.3
 # values it found before taking over), so the vendor temp_para ladder serves
 # in full whenever we are not the one voting.
 temp_guard=0
+# PD ceiling push (uA). The kernel re-asserts AICR 1400mA / ICHG 2300mA every
+# ~10s; the daemon re-writes only after it sees them pulled back. 0 disables
+# either half. ICHG default 4000000 = constant_charge_current_max, the BUCK path
+# ceiling; above the adapter contract the PD source caps the result.
+aicr_unlock=1
+aicr_target=3000000
+ichg_unlock=1
+ichg_target=4000000
+# stop the PD push at this battery temp (degC*10); 440 = 44.0C, just below the
+# JEITA 45C band (ICHG 1750 / CV 4080) and the 50C charge-stop.
+pd_temp_guard=440
+# direct-charge (PPS/SCP/UFCS) volt_para push. The 4A ICHG above only bounds the
+# BUCK path; direct charge runs through the hsc 4:1 pump and its battery-side CC
+# comes from dc_para's volt_para table, so a 3.2A PPS head stopped at the table's
+# 4400mV row (7800mA -> 36-37.6W). This rewrites the given temperature groups on
+# every plug via /sys/kernel/debug/power_debug/dc_hsc_write_pata_conf, raising
+# every row below dc_volt_vbat_cv up to dc_volt_ichg (only raises, never lowers;
+# CV tail rows untouched). The kernel still min-aggregates adapter x4 (12800 on
+# a 3.2A head), cable (13200) and thermal (14500), and temp_para still steps the
+# current down from 44C, so this cannot outrun the vendor thermal ladder.
+# 0 disables it; dc_volt_ichg is in mA, groups are comma-separated.
+dc_volt_unlock=1
+dc_volt_ichg=13200
+dc_volt_groups=volt_para2,volt_para3
+dc_volt_vbat_cv=4500
 # try poking protocol enable nodes (pd/hvc/hsc) on boot and charger plug
 protocol_poke=1
 # launch boost v2: pin min=max on all clusters via perfserv_freq QoS votes
@@ -256,6 +314,15 @@ conf_add temp_guard 0
 conf_add protocol_poke 1
 conf_add max_iin 20000
 conf_add iface_lanes "dcp"
+conf_add aicr_unlock 1
+conf_add aicr_target 3000000
+conf_add ichg_unlock 1
+conf_add ichg_target 4000000
+conf_add pd_temp_guard 440
+conf_add dc_volt_unlock 1
+conf_add dc_volt_ichg 13200
+conf_add dc_volt_groups volt_para2,volt_para3
+conf_add dc_volt_vbat_cv 4500
 conf_add launch_boost 1
 conf_add launch_boost_ms 2000
 conf_add scroll_cap 800000
@@ -340,6 +407,7 @@ do_unlock() {
     echo "thermal $l $max_iin" > "$IFACE/iin_limit" 2>/dev/null
     fight=$((fight + 1))
   done
+  unlock_pd_limits
 }
 
 # The per-device charger/direct_charger{,_sc,_hsc}/iin_thermal writes v2.2.0 was
@@ -376,6 +444,106 @@ do_release() {
     echo "thermal ${p%%=*} ${p##*=}" > "$IFACE/iin_limit" 2>/dev/null
   done
   rm -f "$IFACE_SAVED"
+  pd_release
+}
+
+# PD push state: snapshot the IC values we replace and hand them back on
+# release or on the temperature guard. The OS re-asserts its own values within
+# ~10s anyway; the snapshot just makes a pause/unplug hand-back immediate.
+PD_SAVED=$ST/pd
+pd_snapshot() {
+  [ -s "$PD_SAVED" ] && return
+  s=""
+  v=$(cat "$AICR" 2>/dev/null)
+  [ -n "$v" ] && [ "$v" -gt 0 ] 2>/dev/null && [ "$v" -lt "$aicr_target" ] 2>/dev/null && s="$s aicr=$v"
+  v=$(cat "$ICHRG" 2>/dev/null)
+  [ -n "$v" ] && [ "$v" -gt 0 ] 2>/dev/null && [ "$v" -lt "$ichg_target" ] 2>/dev/null && s="$s ichg=$v"
+  [ -n "$s" ] && echo $s > "$PD_SAVED"
+}
+
+pd_release() {
+  for p in $(cat "$PD_SAVED" 2>/dev/null); do
+    case ${p%%=*} in
+      aicr) n=$AICR ;;
+      ichg) n=$ICHRG ;;
+      *) continue ;;
+    esac
+    [ "$(cat "$n" 2>/dev/null)" = "${p##*=}" ] || echo "${p##*=}" > "$n" 2>/dev/null
+  done
+  rm -f "$PD_SAVED"
+}
+
+unlock_pd_limits() {
+  [ "$aicr_unlock" = "1" ] || [ "$ichg_unlock" = "1" ] || return 0
+  # only while actually charging: pushing ICHG on Full can float/restart the pack
+  [ "$status" = "Charging" ] || return 0
+  if [ -n "$temp" ] && [ "$pd_temp_guard" -gt 0 ] 2>/dev/null && \
+     [ "$temp" -ge "$pd_temp_guard" ] 2>/dev/null; then
+    pd_release
+    return 0
+  fi
+  # a guard release drops the snapshot; re-take it before pushing again so a
+  # later hand-back returns to whatever the OS settled on while we were away
+  pd_snapshot
+  if [ "$aicr_unlock" = "1" ]; then
+    v=$(cat "$AICR" 2>/dev/null)
+    [ "$v" = "$aicr_target" ] || echo "$aicr_target" > "$AICR" 2>/dev/null
+  fi
+  if [ "$ichg_unlock" = "1" ]; then
+    v=$(cat "$ICHRG" 2>/dev/null)
+    [ "$v" = "$ichg_target" ] || echo "$ichg_target" > "$ICHRG" 2>/dev/null
+  fi
+}
+
+# The direct-charge path never touches primary_chg/constant_charge_current: the
+# kernel selects a dc_para volt_para group by battery temperature and the hsc
+# 4:1 pump follows that group's {vbat, ichg_max, ichg_min} triples. Rewriting
+# the group is the only runtime hook for the battery-side CC ceiling. The
+# runtime copy (di+0x2f0) is refreshed on the next selection - a temperature
+# band change or a new session - so the push runs once per plug, while the
+# session is still settling. DT supplies the stock table (NUL-separated ASCII);
+# the setter wants "<group> <24 comma-separated ints>" and copies 0x60 bytes,
+# so the output is padded to eight triples.
+dc_para_raise() {
+  set -- $(echo "$1" | tr ',' ' ')
+  [ $# -ge 3 ] || return 1
+  [ $(($# % 3)) -eq 0 ] || return 1
+  _out=""
+  while [ $# -ge 3 ]; do
+    _v=$1; _mx=$2; _mn=$3; shift 3
+    if [ "$_v" -lt "$dc_volt_vbat_cv" ] 2>/dev/null && \
+       [ "$_mx" -lt "$dc_volt_ichg" ] 2>/dev/null; then
+      _mx=$dc_volt_ichg
+      [ "$_mn" -lt $((dc_volt_ichg - 100)) ] && _mn=$((dc_volt_ichg - 100))
+    fi
+    _out="$_out${_out:+,}$_v,$_mx,$_mn"
+  done
+  _n=$(echo "$_out" | tr ',' '\n' | wc -l)
+  while [ "$_n" -lt 24 ]; do _out="$_out,0"; _n=$((_n + 1)); done
+  echo "$_out"
+}
+
+dc_volt_push() {
+  [ "$dc_volt_unlock" = "1" ] || return 0
+  _node=$DCPARA/dc_hsc_write_pata_conf
+  # release builds boot with debugfs unmounted (the driver's entries exist but
+  # the view is gone), so the node only appears after mounting it ourselves.
+  [ -w "$_node" ] || mount -t debugfs none /sys/kernel/debug 2>/dev/null
+  [ -w "$_node" ] || return 0
+  _w=0
+  for _g in $(echo "$dc_volt_groups" | tr ',' ' '); do
+    [ -n "$_g" ] || continue
+    _f=/proc/device-tree/direct_charger_hsc/$_g
+    [ -r "$_f" ] || continue
+    _raw=$(tr '\0' ',' < "$_f" 2>/dev/null)
+    _raw=${_raw%,}
+    [ -n "$_raw" ] || continue
+    _new=$(dc_para_raise "$_raw") || continue
+    [ -n "$_new" ] || continue
+    echo "$_g $_new" > "$_node" 2>/dev/null && _w=$((_w + 1))
+  done
+  [ "$_w" -gt 0 ] && log "dc_volt: raised $dc_volt_groups to ${dc_volt_ichg}mA ($_w groups)"
+  return 0
 }
 
 poke_protocols() {
@@ -1348,6 +1516,9 @@ while :; do
     charging=0
     [ "$online" = "1" ] && charging=1
     case $status in Charging|Full) charging=1 ;; esac
+    if [ "$charging" = "1" ] && [ "$prev_charging" != "1" ]; then
+      dc_volt_push
+    fi
     if [ "$protocol_poke" = "1" ] && [ "$charging" = "1" ] && [ "$prev_charging" != "1" ]; then
       poke_protocols; log "protocol poke on plug"
       { sleep 8; dump_arbitration; } &
@@ -1364,6 +1535,7 @@ while :; do
   fi
   if [ "$want" = "1" ]; then
     [ "$voted" = "1" ] || iface_snapshot
+    [ "$voted" = "1" ] || pd_snapshot
     do_unlock
     voted=1
     applied=$((applied + 1))

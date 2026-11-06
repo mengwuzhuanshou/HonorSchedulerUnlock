@@ -5,7 +5,8 @@
 
 纯 root 脚本模块（KernelSU / Magisk 双兼容），不依赖 Xposed。核心功能：
 
-- **充电电流对抗**：亮屏 / 熄屏全程对抗充电热限流，SCP / UFCS 直充满档；
+- **充电电流对抗**：亮屏 / 熄屏全程对抗充电热限流，输入电流顶到协议上限，电池侧 ICHG 推到
+  4A（BUCK 路径硬件上限），SCP / UFCS 直充满档；
 - **CPU 频率治理**：app 启动时三簇满频，滑动时大簇降频省电（默认 0.8G）；
 - **FCM 推送保活**：国行 ROM 谷歌连通性探测换源，防 GMS 被断网 / 断推送；
 - **VoLTE 解锁**：为缺 `ims` 接入点的运营商自动补行，国内外卡通用；
@@ -38,6 +39,36 @@
 的 `dcp` 行读回就是这张票；系统会周期性写回场景值，守护进程以 0.3s 周期夺回（读回不同才写），
 夺回次数计在 `fight`，面板与日志可见。
 
+**电池侧 ICHG 默认 4 A（2026-11-05 实机生效，已并入电流对抗）**：`conf` 默认
+`ichg_target=4000000`，`primary_chg/constant_charge_current` 读回 `4000000`，正好等于
+`constant_charge_current_max=4A`——BUCK 路径的硬件天花板。实测（25% 电量、电池 3.97V）：
+电池电流 2976→3969mA，`ibus:dcp` 1800→2527mA，输入功率 ≈15.7→22W，电池温度 34.9→37.1°C。
+收益到这里封顶：PD 固定档契约是 9V×3A（27W），输入端拿不满，电池侧已撞 4A 上限；
+再往上只有 SCP/UFCS 直充（电池 6~8A）。`pd_temp_guard=440` 仍在生效，≥44.0°C 自动释放；
+旧 conf 里的 `ichg_target` 保持原值，想关掉这一半设 `ichg_unlock=0`。
+
+**直充段落电流表（`dc_volt_unlock`，2026-11-06）**：PPS/SCP/UFCS 走
+`direct_charger_hsc` 4:1 泵，电池侧恒流来自 `dc_para` 的 `volt_para*` 表，不经过
+`primary_chg/constant_charge_current`——所以上面那 4 A 对直充不起作用（PPS 会话实测
+电池侧 7.5 A 仍正常）。本机 `volt_para2`（20–35°C）在 4.4 V 档只给 7800 mA，正是
+第三方 PPS 头 36–37.6 W 平台的直接原因。模块每次插电后用
+`/sys/kernel/debug/power_debug/dc_hsc_write_pata_conf` 重写 `volt_para2`/`volt_para3`：
+把 `vbat < dc_volt_vbat_cv` 的行的 `ichg_max` 抬到 `dc_volt_ichg`（只抬不降，CV 尾段不动）。
+写入格式 `<组名> <24 个逗号分隔整数>`，即 8 组 `{vbat, ichg_max, ichg_min}`。
+
+抬升天花板由内核九路聚合决定（`[I/direct_charge_data] get_max_chg_cur return %d, type=%d`
+的 type=0…8：adapter×4、battery、cable、charge_ic、security、time、thermal，取最小正值）：
+3.2 A 头 → adapter 12800、线缆 13200、电池/热 14500，所以表写 13200 时实际按 12800 执行；
+换 5 A PPS 头后上限变成线缆 13200（10-29 的 PPS 会话日志样本）。
+
+表改的是内核内存副本，要等下一次选表（温度组切换或新会话）才进 `di+0x2f0`，所以守护
+进程在插电事件里写；若本次会话已完成选表，则下一次插电生效。≥44°C 后 `temp_para` 仍把
+电流降到 6000/1700，这层不碰。
+
+正式版开机不挂 debugfs（2026-11-06 实测：重启后 `/sys/kernel/debug` 为空，节点被藏起来），
+所以 `dc_volt_push` 在节点不可写时会先 `mount -t debugfs none /sys/kernel/debug` 再写；
+挂载失败就当这轮不写，不改其它状态。
+
 `charger/direct_charger{,_sc,_hsc}/iin_thermal` 这一族**抬不上去**：内核按 DTB `temp_para`
 钳到本档，超了打 `val is too large: 20000, tuned as default` 后节点仍读本档
 （2026-11-04 采样 42 点/3s 间隔：sc/hsc/lvc 全程停在 12000/14500/4500，975 次拒绝）。
@@ -53,9 +84,10 @@
 
 档位是写满的：SCP 66W / UFCS 80W 双规格，UFCS 协商上报 80W。PD 3.1 物理通路在，
 但 `enable_charger` 的协议位实测写不进，PD/PPS 是否置位取决于适配器；PPS 随 PD APDO 生效。
-`ui_max_pwr=40W` 原先记成「只是界面显示口径」——v2.3.0 复采里第三方 PPS 头的稳定平台
-就是 36–37.6W，与 40000 同量级，所以这句话没有证据支撑，工作点很可能就是被这条档压住
-（证据与仍未分离的因素见「已知限制」PD/PPS 条）。
+`ui_max_pwr=40W` 是 uevent/UI 字段：`ui_max_pwr`/`product_max_pwr` 只被
+`dc_para_parse_dts_uevent` 解析、只被 `dc_pdt_init_uevent_cfg` 使用，没有任何限流路径
+读它们（2026-11-06 反汇编闭合）。v2.3.0 的 36–37.6W 平台由 `volt_para2` 的 7800 mA 行
+解释，不是 40000 档。
 
 **温度墙三层**（安全阀，不要绕过）：
 
@@ -318,6 +350,10 @@ poll_interval=0.3         # 轮询秒数；档位被系统写回后在一个周�
 temp_guard=0              # 电池温度 ≥ 该值（0.1°C）时暂停解锁并交还档位；0=关闭保护
 max_iin=20000             # 每条 lane 投的 mA；内核按各 lane 自己的上限钳位，头的能力再兜底
 iface_lanes="dcp"         # 在 interface/iin_limit 上重新投票的 lane；实测只有 dcp 接受抬档
+dc_volt_unlock=1          # 直充（PPS/SCP/UFCS）电池侧恒流表抬升；0=关
+dc_volt_ichg=13200        # 抬到的 ichg_max（mA）；实际仍被 adapter×4/线缆/热的最小值钳位
+dc_volt_groups=volt_para2,volt_para3  # 改写的温度组（20-35°C、35-45°C），逗号分隔
+dc_volt_vbat_cv=4500      # ≥该 vbat 的行是 CV 收尾，不抬
 protocol_poke=1           # 开机/插电时尝试写 pd/hvc/hsc 使能节点（本机实测为只读视图）
 launch_boost=1            # app 启动时三簇满频
 launch_boost_ms=2000      # 满频保持上限（硬顶 5000）
@@ -596,8 +632,8 @@ KernelSU 管理器 → 模块详情 → **WebUI**：
   本会话 1000000→1400000→1200000 逐步跟）；**实际工作点**这台机器上没有直接读数——
   `chargelog` 的 `ibus` 列在 17V 直充阶段是 0，只剩只读的 `direct_charger_hsc/iadapt`
   （与 ibus 同步，早前那场 15 min 采集里 1350→950）和电池侧 `cur`/`vbus` 两个代理量。
-  ⇒ 协议协商侧的天花板（`adapter/max_volt=21000`、`init_adapter_vset=17800`、
-  `ui_max_pwr=40000`）本就到位；输入电流这一道也已确认「写对语法的 lane 票能把 IC 的输入上限
+  ⇒ 协议协商侧的天花板（`adapter/max_volt=21000`、`init_adapter_vset=17800`）本就到位
+  （`ui_max_pwr=40000` 只是 uevent/UI 字段，见上）；输入电流这一道也已确认「写对语法的 lane 票能把 IC 的输入上限
   抬一档」（真 PPS 会话 1.0→1.4A，电池侧 `cur` 同帧 6.5→9.6A），抬不满是因为聚合机 `ilim` 的 min
   后面还压着厂商按温度连投的 `thermal` 聚合票（本场 47 s 内 2000→1400→1200，`default,id:3`
   后来自己抬到 2000 之后短板就只剩它）；再往外才是充电器 IC
