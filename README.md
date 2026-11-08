@@ -21,7 +21,7 @@
 
 | | 充电解锁（电流对抗） | app 启动满频 / 滑动限频 |
 |---|---|---|
-| ✅ 实测可用 | 荣耀 Magic8 Pro Air（天玑 9500 / MT6379 充电 IC / MagicOS 10），全部开发与测试在此完成 | 同左 |
+| ✅ 实测可用 | 荣耀 Magic8 Pro Air（天玑 9500 / MT6379 充电 IC / MagicOS 10/11），全部开发与测试在此完成 | 同左 |
 | 🟡 理论可适配（未实测） | 其它荣耀 MagicOS + 天玑(MTK) 机型：需存在 `/sys/class/hw_power/charger/direct_charger_*` 与 MT6379 系充电 IC | 其它 MTK perfserv 架构机型：需存在 `/proc/powerhal_cpu_ctrl/perfserv_freq` |
 | ❌ 不适用 | 荣耀高通机型（充电栈不同）、非 MagicOS | 高通机型（无 MTK perfserv 栈）、无 root |
 
@@ -47,32 +47,28 @@
 再往上只有 SCP/UFCS 直充（电池 6~8A）。`pd_temp_guard=440` 仍在生效，≥44.0°C 自动释放；
 旧 conf 里的 `ichg_target` 保持原值，想关掉这一半设 `ichg_unlock=0`。
 
-**直充段落电流表（`dc_volt_unlock`，2026-11-06）**：PPS/SCP/UFCS 走
-`direct_charger_hsc` 4:1 泵，电池侧恒流来自 `dc_para` 的 `volt_para*` 表，不经过
-`primary_chg/constant_charge_current`——所以上面那 4 A 对直充不起作用（PPS 会话实测
-电池侧 7.5 A 仍正常）。本机 `volt_para2`（20–35°C）在 4.4 V 档只给 7800 mA，正是
-第三方 PPS 头 36–37.6 W 平台的直接原因。模块每次插电后用
-`/sys/kernel/debug/power_debug/dc_hsc_write_pata_conf` 重写 `volt_para2`/`volt_para3`：
-把 `vbat < dc_volt_vbat_cv` 的行的 `ichg_max` 抬到 `dc_volt_ichg`（只抬不降，CV 尾段不动）。
-写入格式 `<组名> <24 个逗号分隔整数>`，即 8 组 `{vbat, ichg_max, ichg_min}`。
+**原装直充头输入电流对抗（`dc_iin_unlock`，v2.3.3）**：原装 SCP/UFCS 头走
+`direct_charger_{sc,hsc}` 4:1 泵，buck 关闭，适配器电流跟随 sc/hsc 热存储
+（`sc_di+0x143c → dc_thermal_get_max_charging_current → get_max_chg_cur(9) →
+select_charging_param → regulation → adapter_set_output_current`）。厂商直接写
+`charger/direct_charger_<dev>/iin_thermal`（没有 voter 注册，`vote_object` 为空），
+last-writer-wins、无投票 latch——`interface/iin_limit` 的 dcp 票永远够不到这条路。
+守护进程在这个节点对抗：写 `max_iin` 后读回落地值（`DCIIN_EXP`），只有 powergenie
+把值压到落地值以下才重写（约每次厂商重写一次，不是每轮轮询）；厂商把值抬高
+则采纳新值。内核把每次写钳到 `temp_para` 本档（sc 12000 / hsc 14500 @10–44°C，
+≥44°C 起阶梯下降），所以天花板仍由厂商热阶梯持有——对抗夺回的是 powergenie 压到
+天花板以下的部分，不是突破硬件天花板。OS10/OS11 结构一致（clamp +0x1b74、
+store +0x143c、thermal_ctx=di+0x1408），通用。`dc_iin_devs=sc,hsc`，关掉设
+`dc_iin_unlock=0`；释放时（`dciin_release`）写回接管前的原值。
 
-抬升天花板由内核九路聚合决定（`[I/direct_charge_data] get_max_chg_cur return %d, type=%d`
-的 type=0…8：adapter×4、battery、cable、charge_ic、security、time、thermal，取最小正值）：
-3.2 A 头 → adapter 12800、线缆 13200、电池/热 14500，所以表写 13200 时实际按 12800 执行；
-换 5 A PPS 头后上限变成线缆 13200（10-29 的 PPS 会话日志样本）。
-
-表改的是内核内存副本，要等下一次选表（温度组切换或新会话）才进 `di+0x2f0`，所以守护
-进程在插电事件里写；若本次会话已完成选表，则下一次插电生效。≥44°C 后 `temp_para` 仍把
-电流降到 6000/1700，这层不碰。
-
-正式版开机不挂 debugfs（2026-11-06 实测：重启后 `/sys/kernel/debug` 为空，节点被藏起来），
-所以 `dc_volt_push` 在节点不可写时会先 `mount -t debugfs none /sys/kernel/debug` 再写；
-挂载失败就当这轮不写，不改其它状态。
-
-`charger/direct_charger{,_sc,_hsc}/iin_thermal` 这一族**抬不上去**：内核按 DTB `temp_para`
-钳到本档，超了打 `val is too large: 20000, tuned as default` 后节点仍读本档
-（2026-11-04 采样 42 点/3s 间隔：sc/hsc/lvc 全程停在 12000/14500/4500，975 次拒绝）。
-现在的守护进程不再写这一族——它在任何温度都不可能有收益，只贡献 54 行/分钟的内核报错。
+**v2.3.2 的 `dc_volt` 已移除（从未生效）**：v2.3.2 曾声称用
+`/sys/kernel/debug/power_debug/dc_hsc_write_pata_conf` 重写 `volt_para2`/`volt_para3`、
+把直充段落电流表抬到 13200mA。反汇编证实内核 `dc_dbg_para_config_store` 的组名白名单
+只收 `volt_para`/`volt_para1`（含 `_fac`），`volt_para2`/`volt_para3` 在 OS10/OS11
+均被拒（rc=1），该功能从未生效；当时的「写入成功」是把入口日志 `ret=106`（strlen）
+误读成 store 返回值。v2.3.3 删除旋钮与全部写入，设备残留配置项被忽略。第三方 PPS 头
+36–37.6W 平台确由 `volt_para2` 的 4.4V 档 7800mA 行解释，但该表无法从用户态改写
+（白名单不收），故无对应抓手。
 
 **协议档位**（DTS 实测）：
 
@@ -350,10 +346,8 @@ poll_interval=0.3         # 轮询秒数；档位被系统写回后在一个周�
 temp_guard=0              # 电池温度 ≥ 该值（0.1°C）时暂停解锁并交还档位；0=关闭保护
 max_iin=20000             # 每条 lane 投的 mA；内核按各 lane 自己的上限钳位，头的能力再兜底
 iface_lanes="dcp"         # 在 interface/iin_limit 上重新投票的 lane；实测只有 dcp 接受抬档
-dc_volt_unlock=1          # 直充（PPS/SCP/UFCS）电池侧恒流表抬升；0=关
-dc_volt_ichg=13200        # 抬到的 ichg_max（mA）；实际仍被 adapter×4/线缆/热的最小值钳位
-dc_volt_groups=volt_para2,volt_para3  # 改写的温度组（20-35°C、35-45°C），逗号分隔
-dc_volt_vbat_cv=4500      # ≥该 vbat 的行是 CV 收尾，不抬
+dc_iin_unlock=1           # 原装 SCP/UFCS 直充头在 direct_charger_<dev>/iin_thermal 对抗 powergenie；0=关
+dc_iin_devs=sc,hsc        # 对抗的直充设备（逗号分隔）；钳位仍由内核 temp_para 热阶梯兜底
 protocol_poke=1           # 开机/插电时尝试写 pd/hvc/hsc 使能节点（本机实测为只读视图）
 launch_boost=1            # app 启动时三簇满频
 launch_boost_ms=2000      # 满频保持上限（硬顶 5000）

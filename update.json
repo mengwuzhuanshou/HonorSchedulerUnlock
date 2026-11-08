@@ -1,6 +1,6 @@
 {
-  "version": "v2.3.2",
-  "versionCode": 40,
-  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v2.3.2.zip",
-  "changelog": "v2.3.2（相对 v2.3.1）\n\n1. 直充段落电流表抬升（dc_volt_unlock，默认开）：PPS/SCP/UFCS 走 direct_charger_hsc 的 4:1 泵，电池侧恒流由 dc_para 的 volt_para2/volt_para3 决定，与 BUCK 路径的 4A ICHG 无关。本机 volt_para2（20–35°C）在 4.4V 档只给 7800mA，正是第三方 PPS 头 36–37.6W 平台的直接原因。模块在每次插电时把 vbat<4500mV 各档的 ichg_max 抬到 dc_volt_ichg（默认 13200mA；只抬不降，4.55V 以上 CV 尾段不动）。实际执行值仍受内核九路聚合兜底：3.2A 头 adapter×4=12800、线缆 13200、电池/热 14500；≥44°C 后 temp_para 照常降到 6000/1700。\n2. 正式版开机不挂 debugfs：写入节点 /sys/kernel/debug/power_debug/dc_hsc_write_pata_conf 默认不可见，守护进程改为写表前自动 mount -t debugfs，挂载失败就跳过本轮、不动其它状态（2026-11-06 实机验证两张表写入成功）。\n3. PD 头输入/电池侧推送（aicr_unlock/ichg_unlock，默认开）：AICR 推到 3A、ICHG 推到 4A（=constant_charge_current_max），只在读回被系统压回时重写；9V/3A PD 头实测输入 15.7→22W、电池 2976→3969mA、34.9→37.1°C，pd_temp_guard 44°C 自动释放。\n"
+  "version": "v2.3.3",
+  "versionCode": 41,
+  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v2.3.3.zip",
+  "changelog": "v2.3.3（相对 v2.3.2）\n\n1. 移除 dc_volt 直充段落电流表抬升：反汇编内核证实 dc_dbg_para_config_store 的组名白名单只收 volt_para/volt_para1（含 _fac），模块写的 volt_para2/volt_para3 在 OS10/OS11 均被拒（rc=1），该功能从未生效；v2.3.2 所谓「写入成功」是把入口日志 ret=106（strlen）误读成返回值。旋钮与全部写入一并删除，设备残留配置项被忽略。\n2. 新增 dciin 原装直充头对抗（dc_iin_unlock，默认开）：在 charger/direct_charger_{sc,hsc}/iin_thermal 写裸 mA 对抗 powergenie 限流（last-writer-wins，仅在读回被压回时重写，落地值跟踪避免每轮重写）；钳位仍由内核 temp_para 热阶梯兜底（sc 12000 / hsc 14500 @10–44°C），OS10/OS11 结构一致、通用。\n3. OS11 / MagicOS 11.0.0.110 适配：eidfix EID 守护双工厂 sha（入口偏移不同，按出厂 sha 选偏移），超广角 AE 库双 sha 校验。\n"
 }

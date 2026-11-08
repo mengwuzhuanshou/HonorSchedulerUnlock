@@ -30,13 +30,13 @@ verbose=0
 # caps below it - thermal dcp 3000/4000 on a 21V/4A head still served
 # primary_chg/input_current_limit 2000000.
 max_iin=20000
-# lanes re-voted on interface/iin_limit. Only lanes that ACCEPT a vote above
-# their own ceiling are worth listing: measured per lane (2026-11-02), dcp keeps
-# 20000, while lvc/sc/hsc hold at their temp_para row (4500/12000/14500) whatever
-# is written - voting those three only buys log lines. `dcp` is the lane a
-# BC12/PPS head is bound by (it feeds charge_data/iin_rt_current and the
-# charger-IC AICR) and is the one v2.2.0 never voted. Setting this empty means
-# the module writes no input-current vote at all.
+# lanes re-voted on interface/iin_limit. Only `dcp` belongs here: the vendor
+# re-votes dcp through this same node, so eff changes and our re-assert fires.
+# On sc/hsc the vendor writes the per-device iin_thermal node DIRECTLY (no voter
+# ever registers - vote_object shows none), and power_vote_set ignores a
+# same-value re-vote once applied (latch at vote_obj+0x44, proven live
+# 2026-11-08: same vote after a vendor overwrite left the row at the vendor
+# value). Those lanes are fought by dciin_push below instead. Empty = no vote.
 iface_lanes="dcp"
 
 # PD ceiling push. AICR and ICHG are the charger-IC *result* nodes: the kernel
@@ -56,19 +56,19 @@ ichg_target=4000000
 # band so the firmware ladder, not our write, owns it.
 pd_temp_guard=440
 
-# Direct-charge (PPS/SCP/UFCS) battery-side CC ceiling. primary_chg/
-# constant_charge_current does NOT bound this path: the hsc 4:1 pump follows
-# dc_para's volt_para table, and with a 3.2A PPS head the table's 4400mV row
-# (7800mA) - not the adapter - was the mid/high-SoC limit (36-37.6W measured).
-# The nine dc_data sources min-aggregate to 12800 (adapter 3200 x4) / 13200
-# (cable) / 14500 (battery, thermal), so anything up to 13200 is reachable.
-# Rows above dc_volt_vbat_cv are the CV tail and are never raised. Only raises,
-# never lowers, and temp_para still steps the current down from 44C.
-dc_volt_unlock=1
-dc_volt_ichg=13200
-dc_volt_groups="volt_para2,volt_para3"
-dc_volt_vbat_cv=4500
-DCPARA=/sys/kernel/debug/power_debug
+# Stock-head (SCP/UFCS) input-current fight on the per-device nodes
+# charger/direct_charger_<dev>/iin_thermal. This is the node powergenie itself
+# writes, so it is last-writer-wins with no vote latch: the daemon re-asserts
+# only when the value drops below what our last write landed (read-back after
+# write), about one write per vendor re-assert, not per poll. The kernel clamps
+# every write to the temp_para row (sc 12000 / hsc 14500 at 10-44C, stepping down
+# from 44C), so the vendor thermal ladder still owns the ceiling. This is the
+# path the dcp interface vote can never reach: on a stock direct-charge head the
+# buck is off and adapter current follows the sc/hsc thermal storage
+# (sc_di+0x143c -> dc_thermal_get_max_charging_current -> get_max_chg_cur(9) ->
+# select_charging_param -> regulation -> adapter_set_output_current).
+dc_iin_unlock=1
+dc_iin_devs="sc,hsc"
 
 if [ ! -f "$CONF" ]; then
   cat > "$CONF" <<EOF
@@ -96,20 +96,11 @@ ichg_target=4000000
 # stop the PD push at this battery temp (degC*10); 440 = 44.0C, just below the
 # JEITA 45C band (ICHG 1750 / CV 4080) and the 50C charge-stop.
 pd_temp_guard=440
-# direct-charge (PPS/SCP/UFCS) volt_para push. The 4A ICHG above only bounds the
-# BUCK path; direct charge runs through the hsc 4:1 pump and its battery-side CC
-# comes from dc_para's volt_para table, so a 3.2A PPS head stopped at the table's
-# 4400mV row (7800mA -> 36-37.6W). This rewrites the given temperature groups on
-# every plug via /sys/kernel/debug/power_debug/dc_hsc_write_pata_conf, raising
-# every row below dc_volt_vbat_cv up to dc_volt_ichg (only raises, never lowers;
-# CV tail rows untouched). The kernel still min-aggregates adapter x4 (12800 on
-# a 3.2A head), cable (13200) and thermal (14500), and temp_para still steps the
-# current down from 44C, so this cannot outrun the vendor thermal ladder.
-# 0 disables it; dc_volt_ichg is in mA, groups are comma-separated.
-dc_volt_unlock=1
-dc_volt_ichg=13200
-dc_volt_groups=volt_para2,volt_para3
-dc_volt_vbat_cv=4500
+# stock SCP/UFCS head fight on charger/direct_charger_<dev>/iin_thermal (the
+# node powergenie writes; last-writer-wins, clamped to the temp_para row so the
+# vendor thermal ladder keeps the ceiling). 0 disables; devs comma-separated.
+dc_iin_unlock=1
+dc_iin_devs=sc,hsc
 # try poking protocol enable nodes (pd/hvc/hsc) on boot and charger plug
 protocol_poke=1
 # launch boost v2: pin min=max on all clusters via perfserv_freq QoS votes
@@ -319,10 +310,8 @@ conf_add aicr_target 3000000
 conf_add ichg_unlock 1
 conf_add ichg_target 4000000
 conf_add pd_temp_guard 440
-conf_add dc_volt_unlock 1
-conf_add dc_volt_ichg 13200
-conf_add dc_volt_groups volt_para2,volt_para3
-conf_add dc_volt_vbat_cv 4500
+conf_add dc_iin_unlock 1
+conf_add dc_iin_devs sc,hsc
 conf_add launch_boost 1
 conf_add launch_boost_ms 2000
 conf_add scroll_cap 800000
@@ -407,18 +396,18 @@ do_unlock() {
     echo "thermal $l $max_iin" > "$IFACE/iin_limit" 2>/dev/null
     fight=$((fight + 1))
   done
+  dciin_push
   unlock_pd_limits
 }
 
-# The per-device charger/direct_charger{,_sc,_hsc}/iin_thermal writes v2.2.0 was
-# built on are gone. The node clamps every write to its own temp_para row ("val
-# is too large: 20000, tuned as default") and then reads back exactly that row,
-# so a vote above the row can never land - measured 2026-11-04 over 42 samples
-# 3 s apart while the daemon was writing: sc/hsc/lvc held 12000/14500/4500
-# through all 975 rejections (54 kernel error lines/minute). At 33.7 degC the
-# rows are 4500/5000-12000/14500 and they only step DOWN with heat, so there is
-# no temperature and no head where max_iin=20000 is not above them: these writes
-# could not help, and below the row they would only lower it.
+# The per-device charger/direct_charger{,_sc,_hsc}/iin_thermal nodes clamp every
+# write to the temp_para row ("val is too large: 20000, tuned as default") and
+# read back the CLAMPED value, never 20000 - the 2026-11-04 measurement misread
+# that as "writes could not help". They do land: 2026-11-08 live proof, vendor
+# sc=6947 -> write 20000 -> both this node and the interface row read 12000 (the
+# 33C temp_para row), restore 6947 -> both follow. dciin_push below fights on
+# exactly these nodes with a landed-value tracker so the clamp error is logged
+# once per vendor re-assert, not per poll.
 
 # Do NOT "release" by writing 0: measured, `thermal dcp 0` took the lane from
 # 1000 -> 2500 and nothing re-applied 1000 for 21 s, so zeroing is a partial
@@ -444,6 +433,7 @@ do_release() {
     echo "thermal ${p%%=*} ${p##*=}" > "$IFACE/iin_limit" 2>/dev/null
   done
   rm -f "$IFACE_SAVED"
+  dciin_release
   pd_release
 }
 
@@ -495,55 +485,54 @@ unlock_pd_limits() {
   fi
 }
 
-# The direct-charge path never touches primary_chg/constant_charge_current: the
-# kernel selects a dc_para volt_para group by battery temperature and the hsc
-# 4:1 pump follows that group's {vbat, ichg_max, ichg_min} triples. Rewriting
-# the group is the only runtime hook for the battery-side CC ceiling. The
-# runtime copy (di+0x2f0) is refreshed on the next selection - a temperature
-# band change or a new session - so the push runs once per plug, while the
-# session is still settling. DT supplies the stock table (NUL-separated ASCII);
-# the setter wants "<group> <24 comma-separated ints>" and copies 0x60 bytes,
-# so the output is padded to eight triples.
-dc_para_raise() {
-  set -- $(echo "$1" | tr ',' ' ')
-  [ $# -ge 3 ] || return 1
-  [ $(($# % 3)) -eq 0 ] || return 1
-  _out=""
-  while [ $# -ge 3 ]; do
-    _v=$1; _mx=$2; _mn=$3; shift 3
-    if [ "$_v" -lt "$dc_volt_vbat_cv" ] 2>/dev/null && \
-       [ "$_mx" -lt "$dc_volt_ichg" ] 2>/dev/null; then
-      _mx=$dc_volt_ichg
-      [ "$_mn" -lt $((dc_volt_ichg - 100)) ] && _mn=$((dc_volt_ichg - 100))
+# Per-device iin_thermal fight for stock direct-charge heads. Both this node and
+# interface/iin_limit read back the same storage (sc_get_iin_limit reads
+# sc_di+0x143c, exactly what sc_set_iin_limit writes), and the vendor writes it
+# here directly - so the fight must happen here, last-writer-wins. Every write
+# above the temp_para row is clamped AND logs one kernel error line, so a blind
+# per-poll re-assert is not an option: track what our last write landed
+# ($DCIIN_EXP) and re-assert only when the value drops below it. If the value
+# rose above it (vendor relaxed after a temp drop), adopt the new value.
+DCIIN_EXP=$ST/dciin_exp
+DCIIN_SAVED=$ST/dciin_saved
+dciin_push() {
+  [ "$dc_iin_unlock" = "1" ] || return 0
+  [ "$status" = "Charging" ] || return 0
+  for _m in $(echo "$dc_iin_devs" | tr ',' ' '); do
+    _n=$DC/direct_charger_$_m/iin_thermal
+    [ -w "$_n" ] || continue
+    _v=$(cat "$_n" 2>/dev/null)
+    [ -n "$_v" ] || continue
+    _e=$(awk -v k="$_m" '$1==k{print $2; exit}' "$DCIIN_EXP" 2>/dev/null)
+    [ -n "$_e" ] || _e=$max_iin
+    if [ "$_v" -ge "$_e" ] 2>/dev/null; then
+      # vendor raised it at/above our landed value: adopt, nothing to fight
+      if [ "$_v" -gt "$_e" ] 2>/dev/null; then
+        awk -v k="$_m" '$1!=k' "$DCIIN_EXP" 2>/dev/null > "$DCIIN_EXP.t"
+        echo "$_m $_v" >> "$DCIIN_EXP.t"
+        mv "$DCIIN_EXP.t" "$DCIIN_EXP"
+      fi
+      continue
     fi
-    _out="$_out${_out:+,}$_v,$_mx,$_mn"
+    grep -q "^$_m " "$DCIIN_SAVED" 2>/dev/null || echo "$_m $_v" >> "$DCIIN_SAVED"
+    echo "$max_iin" > "$_n" 2>/dev/null || continue
+    _nv=$(cat "$_n" 2>/dev/null)
+    [ -n "$_nv" ] || continue
+    awk -v k="$_m" '$1!=k' "$DCIIN_EXP" 2>/dev/null > "$DCIIN_EXP.t"
+    echo "$_m $_nv" >> "$DCIIN_EXP.t"
+    mv "$DCIIN_EXP.t" "$DCIIN_EXP"
+    fight=$((fight + 1))
   done
-  _n=$(echo "$_out" | tr ',' '\n' | wc -l)
-  while [ "$_n" -lt 24 ]; do _out="$_out,0"; _n=$((_n + 1)); done
-  echo "$_out"
 }
 
-dc_volt_push() {
-  [ "$dc_volt_unlock" = "1" ] || return 0
-  _node=$DCPARA/dc_hsc_write_pata_conf
-  # release builds boot with debugfs unmounted (the driver's entries exist but
-  # the view is gone), so the node only appears after mounting it ourselves.
-  [ -w "$_node" ] || mount -t debugfs none /sys/kernel/debug 2>/dev/null
-  [ -w "$_node" ] || return 0
-  _w=0
-  for _g in $(echo "$dc_volt_groups" | tr ',' ' '); do
-    [ -n "$_g" ] || continue
-    _f=/proc/device-tree/direct_charger_hsc/$_g
-    [ -r "$_f" ] || continue
-    _raw=$(tr '\0' ',' < "$_f" 2>/dev/null)
-    _raw=${_raw%,}
-    [ -n "$_raw" ] || continue
-    _new=$(dc_para_raise "$_raw") || continue
-    [ -n "$_new" ] || continue
-    echo "$_g $_new" > "$_node" 2>/dev/null && _w=$((_w + 1))
-  done
-  [ "$_w" -gt 0 ] && log "dc_volt: raised $dc_volt_groups to ${dc_volt_ichg}mA ($_w groups)"
-  return 0
+dciin_release() {
+  if [ -s "$DCIIN_SAVED" ]; then
+    while read -r _m _v; do
+      [ -n "$_m" ] && [ -n "$_v" ] && \
+        echo "$_v" > "$DC/direct_charger_$_m/iin_thermal" 2>/dev/null
+    done < "$DCIIN_SAVED"
+  fi
+  rm -f "$DCIIN_SAVED" "$DCIIN_EXP" "$DCIIN_EXP.t"
 }
 
 poke_protocols() {
@@ -868,7 +857,13 @@ rm -f $ST/uwg $ST/uwg.mnt \
 # untouched), and "off" is a plain umount.
 UWA_DB_TGT=/odm/bin/crossbuild/DataSet/SQLiteModule/db/ae/ParameterDB_ae.db
 UWA_SO_TGT=/vendor/lib64/mt6993/libmtkcam_metastore.so
+# AE pline 311 stock sha per ROM. MagicOS 11 (11.0.0.110) rebuilt the DB but the
+# pline 311 layout is byte-identical at the same offsets (eMax@4265560=200000,
+# iso@4265568=72000, 17 anchors @4265296 - verified on the OS11 factory /odm),
+# so both pins share one patch path. metastore.so is unchanged across the two
+# ROMs (same sha), hence a single UWA_SO_SHA.
 UWA_DB_SHA=8e271ec39bf5bba14fa26e17bd0862becedb63ccf3cee8cc5cd210328b9a3732
+UWA_DB_SHA11=8e2b793d96ee384a1e346f6c2cc8ec052cbe462f0be18ec8879b7fcb0a5336fa
 UWA_SO_SHA=8e593affebc3e9ce6f15ba041f75ac7204993d6d10d10f041cf961f517b7937f
 UWA_DB_BASE=4265296
 UWA_DB_EMAX=4265560
@@ -947,7 +942,7 @@ if [ "$uw_match" = "0" ]; then
   fi
   uw_db_ok=0; uw_so_ok=0
   uw_s=$(sha256sum "$UWA_DB_TGT" 2>/dev/null | cut -d' ' -f1)
-  [ "$uw_s" = "$UWA_DB_SHA" ] && uw_db_ok=1
+  case "$uw_s" in "$UWA_DB_SHA"|"$UWA_DB_SHA11") uw_db_ok=1 ;; esac
   uw_s=$(sha256sum "$UWA_SO_TGT" 2>/dev/null | cut -d' ' -f1)
   [ "$uw_s" = "$UWA_SO_SHA" ] && uw_so_ok=1
   if [ "$uw_db_ok" != "1" ] || [ "$uw_so_ok" != "1" ]; then
@@ -1516,9 +1511,6 @@ while :; do
     charging=0
     [ "$online" = "1" ] && charging=1
     case $status in Charging|Full) charging=1 ;; esac
-    if [ "$charging" = "1" ] && [ "$prev_charging" != "1" ]; then
-      dc_volt_push
-    fi
     if [ "$protocol_poke" = "1" ] && [ "$charging" = "1" ] && [ "$prev_charging" != "1" ]; then
       poke_protocols; log "protocol poke on plug"
       { sleep 8; dump_arbitration; } &
