@@ -67,12 +67,16 @@ RP=/data/adb/ksu/bin/resetprop
 tph_orig=$(head -n 1 $ST/tph_orig 2>/dev/null | tr -d '\r')
 "$RP" ro.build.characteristics "${tph_orig:-default}" 2>/dev/null
 rm -f $ST/tph $ST/tph_orig $ST/tph.done
-# eid_guard: the bind source is under $ST/eidfix, so unmount before removing it -
-# otherwise the patched lib stays mapped over /system until the next reboot and
-# the factory EID check does not come back.
+# esim_fix (v2.4.0, merged eid_guard): the bind source is under $ST/eidfix, so
+# unmount before removing it - otherwise the patched lib stays mapped over
+# /system until the next reboot and the factory EID check does not come back.
 umount /system/lib64/liboeminfoInf_esim.so 2>/dev/null
 rm -f $ST/eid
 rm -rf $ST/eidfix /data/adb/eidfix
+# esim_fix half 2: remove the geofence hook APK so uninstalling the module does
+# not leave an orphan LSPosed module behind. Best effort (no-op if never installed).
+pm uninstall com.tamer.esimfix >/dev/null 2>&1
+rm -f $ST/esimhook
 rm -f /data/vendor/thermal/thermal.conf
 # FCM: probe url list lives only in system_server memory; PowerGenie re-pushes
 # the stock google.com list on next boot. Restore immediately as best effort:

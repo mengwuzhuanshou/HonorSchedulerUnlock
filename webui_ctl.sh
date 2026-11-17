@@ -21,7 +21,7 @@ case "$1" in
   set)
     k=$2; v=$3
     case "$k" in
-      screen_on_unlock|unlock_when_screen_off|launch_boost|disable_preload|fcm_unlock|vpn_lock|lsp_fix|thirdparty_home|volte_fix|qr_fix|eid_guard)
+      screen_on_unlock|unlock_when_screen_off|launch_boost|disable_preload|fcm_unlock|vpn_lock|lsp_fix|thirdparty_home|volte_fix|qr_fix|esim_fix)
         case "$v" in 0|1) ;; *) echo "ERR bad value"; exit 1 ;; esac ;;
       region_mode)
         case "$v" in default|cn|overseas) ;; *) echo "ERR bad value"; exit 1 ;; esac ;;

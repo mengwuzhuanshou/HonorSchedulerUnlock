@@ -195,14 +195,22 @@ volte_radio_cycle=1
 # panel (webui_ctl restarts the daemon). No partition write, dm-verity
 # untouched, off = plain umount. Default on: user-verified sharper scans.
 qr_fix=1
-# eid_guard (v2.2.2): the eSIM EID-mismatch power-down bypass (the slot-2
-# "当前使用的非法 eSIM 无法与设备匹配，已将该卡禁用" dialog). IN THIS MODULE, no
-# extra LSPosed APK: an 8-byte splice makes native getOeminfoEid() return empty,
-# which is one of the three ways checkCardEid() decides not to forbid.
-# OFF BY DEFAULT because that same getter also feeds the activation-code path:
-# with the guard on, adding a domestic-carrier eSIM by activation code fails
-# until the switch is turned off and the phone is rebooted.
-eid_guard=0
+# esim_fix (v2.4.0, merges the old eid_guard): the single eSIM switch. It drives
+# BOTH halves of the external-eSIM fix:
+#   (1) EID-mismatch power-down bypass - the slot-2 "当前使用的非法 eSIM 无法与设备
+#       匹配，已将该卡禁用" dialog. An 8-byte splice makes native getOeminfoEid()
+#       return empty, one of the three ways checkCardEid() decides not to forbid
+#       (eidfix/apply.sh, sha-pinned, bind-mount, no partition write).
+#   (2) geofence removal - a bundled libxposed hook APK (esimhook/esimfix.apk,
+#       scope com.hihonor.esimservice) short-circuits checkLocationAndOperator()
+#       to 0, so downloading/activating a foreign eSIM profile no longer reads
+#       GPS/HiGeo and no longer needs location spoofing. Installed via pm when
+#       this switch is on, uninstalled when off. ONE-TIME: enable the module
+#       "eSIM 围栏去除" in LSPosed manager (its scope is pre-set).
+# OFF BY DEFAULT because half (1) also feeds the activation-code path: with the
+# EID splice on, adding a domestic-carrier eSIM by activation code fails until
+# the switch is turned off and the phone is rebooted.
+esim_fix=0
 # smartae_target (v1.9.9): rear-main AE luma target, the exposure knob the
 # community asks for (reports: 过曝 / 高光压不住). Factory 200 and IDENTICAL in
 # all six smartae variants (/odm/etc/camera/smartae/back{,/aperture,/tele,/wide}
@@ -336,7 +344,15 @@ conf_add thirdparty_home 0
 conf_add volte_fix 1
 conf_add volte_radio_cycle 1
 conf_add qr_fix 1
-conf_add eid_guard 0
+# v2.4.0: eid_guard merged into esim_fix (EID splice + geofence hook). Carry an
+# explicit eid_guard=1 over so an existing bypass stays on after the upgrade.
+if ! grep -q '^esim_fix=' "$CONF" 2>/dev/null; then
+  case "$(sed -n 's/^eid_guard=//p' "$CONF" 2>/dev/null | head -n 1)" in
+    1) echo 'esim_fix=1' >> "$CONF" ;;
+    *) echo 'esim_fix=0' >> "$CONF" ;;
+  esac
+fi
+conf_add esim_fix 0
 conf_add smartae_target 185
 # v2.2.0: sharpen_cut is retired with its HDRP-XML route. Migrate an explicit 0
 # (user had sharpening off) to the new tier 0; everything else starts at x1.5.
@@ -622,14 +638,16 @@ else
   echo "off" > "$QR_STF" 2>/dev/null
 fi
 
-# ---------- eSIM EID guard (v2.2.2): runtime switch handling ----------
-# post-fs-data already applied the mount for the cold-boot case; this branch runs
-# BEFORE the boot wait so a panel toggle (webui_ctl restarts the daemon) takes
-# effect without a reboot. That works because nothing maps the lib until the first
-# SIM state change - once com.android.phone has loaded it, the already-mapped
-# copy stays, and only the next boot picks the new one. Idempotent: apply.sh
-# unmounts first and regenerates from the factory lib every call.
-sh "$MODDIR/eidfix/apply.sh" "$MODDIR" "$eid_guard"
+# ---------- eSIM fix (v2.4.0, merged eid_guard + geofence): runtime switch ----
+# Half (1): the EID-mismatch splice. post-fs-data already applied the mount for
+# the cold-boot case; this branch runs BEFORE the boot wait so a panel toggle
+# (webui_ctl restarts the daemon) takes effect without a reboot. That works
+# because nothing maps the lib until the first SIM state change - once
+# com.android.phone has loaded it, the already-mapped copy stays, and only the
+# next boot picks the new one. Idempotent: apply.sh unmounts first and
+# regenerates from the factory lib every call.
+# Half (2): the geofence hook APK is installed/uninstalled post-boot below.
+sh "$MODDIR/eidfix/apply.sh" "$MODDIR" "$esim_fix"
 
 # ---------- SmartAE exposure knob (v1.9.9): numeric, bind-mounted ----------
 # Regenerated from the pristine module copy on every daemon start, so the knob
@@ -1055,6 +1073,44 @@ while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 2; done
 sleep 10
 
 log "daemon started pid=$$"
+
+# ---------- eSIM geofence hook APK (v2.4.0, esim_fix half 2) ----------
+# The EID splice above is native; the geofence (checkLocationAndOperator) is
+# Java inside the system app com.hihonor.esimservice, unreachable by a bind
+# mount, so it ships as a libxposed hook APK. Install it when esim_fix is on,
+# remove it when off. Runs after boot_completed because pm install needs the
+# package service. Idempotent: pm path gates the install, so a daemon restart
+# (panel toggle) re-syncs without duplicating. ONE-TIME manual step: the user
+# must enable "eSIM 围栏去除" in LSPosed manager once; staticScope=true +
+# scope.list then keep com.hihonor.esimservice scoped automatically.
+ESIMHOOK_PKG=com.tamer.esimfix
+ESIMHOOK_APK=$MODDIR/esimhook/esimfix.apk
+ESIMHOOK_STF=$ST/esimhook
+if [ "$esim_fix" = "1" ]; then
+  if pm path "$ESIMHOOK_PKG" >/dev/null 2>&1; then
+    echo "installed" > "$ESIMHOOK_STF" 2>/dev/null
+  elif [ -f "$ESIMHOOK_APK" ]; then
+    cp -f "$ESIMHOOK_APK" /data/local/tmp/.esimfix.apk 2>/dev/null
+    if pm install -r /data/local/tmp/.esimfix.apk >/dev/null 2>&1; then
+      echo "installed-enable-in-lsposed" > "$ESIMHOOK_STF" 2>/dev/null
+      log "esim_fix: geofence hook APK installed (enable in LSPosed manager)"
+    else
+      echo "install-failed" > "$ESIMHOOK_STF" 2>/dev/null
+      log "esim_fix: hook APK pm install failed"
+    fi
+    rm -f /data/local/tmp/.esimfix.apk 2>/dev/null
+  else
+    echo "missing-apk" > "$ESIMHOOK_STF" 2>/dev/null
+  fi
+else
+  if pm path "$ESIMHOOK_PKG" >/dev/null 2>&1; then
+    pm uninstall "$ESIMHOOK_PKG" >/dev/null 2>&1
+    echo "uninstalled" > "$ESIMHOOK_STF" 2>/dev/null
+    log "esim_fix: geofence hook APK uninstalled"
+  else
+    echo "off" > "$ESIMHOOK_STF" 2>/dev/null
+  fi
+fi
 
 # ---------- launch boost (v2.0, perfserv_freq QoS pin) ----------
 # Start  : ActivityManager "Start proc <pid>:<pkg> ... for [next-]top-activity"

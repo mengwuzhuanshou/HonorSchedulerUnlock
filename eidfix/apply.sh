@@ -1,6 +1,6 @@
 #!/system/bin/sh
-# eid_guard applier - shared by post-fs-data.sh (cold boot) and service.sh (panel
-# toggle), so the sha pins below can never drift apart.
+# esim_fix (EID-splice half) applier - shared by post-fs-data.sh (cold boot) and
+# service.sh (panel toggle), so the sha pins below can never drift apart.
 #   $1 = module dir   $2 = 0|1
 # Idempotent and never writes a partition: the patched lib is regenerated from
 # the factory copy on every call, off = plain umount. The resulting state is

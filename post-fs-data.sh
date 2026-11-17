@@ -142,8 +142,8 @@ else
   echo "off" > "$QR_STF" 2>/dev/null
 fi
 
-# eid_guard (v2.2.2): the eSIM EID-mismatch power-down, disarmed inside this
-# module (no extra LSPosed APK). HwUiccControllerReference#checkCardEid only
+# esim_fix (v2.4.0, merged eid_guard): the eSIM EID-mismatch power-down, disarmed
+# inside this module (no extra LSPosed APK for THIS half). HwUiccControllerReference#checkCardEid only
 # forbids a card when BOTH EIDs are non-empty and different, so an empty oeminfo
 # EID removes the whole path - no setSimPowerStateForSlot(slot, 0) and no
 # OemEidMismatchDialogActivity on slot 2. Java reaches the NV only through the
@@ -167,7 +167,13 @@ fi
 # an already-mapped copy is never re-read (nothing maps it at boot on this build,
 # verified, which is why service.sh can still apply a later switch change live).
 # eidfix/apply.sh holds the offset, both sha pins and the full cost note.
-sh "$MODDIR/eidfix/apply.sh" "$MODDIR" "$eid_guard"
+# v2.4.0: esim_fix replaces eid_guard. On an upgrade boot the conf may not have
+# esim_fix yet (service.sh writes the migration later); fall back to the old
+# eid_guard value so the cold-boot mount stays correct.
+esim_fix_eff=$esim_fix
+[ -z "$esim_fix_eff" ] && esim_fix_eff=$eid_guard
+[ -z "$esim_fix_eff" ] && esim_fix_eff=0
+sh "$MODDIR/eidfix/apply.sh" "$MODDIR" "$esim_fix_eff"
 
 
 # lsp_fix (v1.9.5): Honor's PackageParser NPEs inside the lspd daemon when

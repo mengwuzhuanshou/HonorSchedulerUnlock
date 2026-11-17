@@ -1,6 +1,6 @@
 {
-  "version": "v2.3.3",
-  "versionCode": 41,
-  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v2.3.3.zip",
-  "changelog": "v2.3.3（相对 v2.3.2）\n\n1. 移除 dc_volt 直充段落电流表抬升：反汇编内核证实 dc_dbg_para_config_store 的组名白名单只收 volt_para/volt_para1（含 _fac），模块写的 volt_para2/volt_para3 在 OS10/OS11 均被拒（rc=1），该功能从未生效；v2.3.2 所谓「写入成功」是把入口日志 ret=106（strlen）误读成返回值。旋钮与全部写入一并删除，设备残留配置项被忽略。\n2. 新增 dciin 原装直充头对抗（dc_iin_unlock，默认开）：在 charger/direct_charger_{sc,hsc}/iin_thermal 写裸 mA 对抗 powergenie 限流（last-writer-wins，仅在读回被压回时重写，落地值跟踪避免每轮重写）；钳位仍由内核 temp_para 热阶梯兜底（sc 12000 / hsc 14500 @10–44°C），OS10/OS11 结构一致、通用。\n3. OS11 / MagicOS 11.0.0.110 适配：eidfix EID 守护双工厂 sha（入口偏移不同，按出厂 sha 选偏移），超广角 AE 库双 sha 校验。\n"
+  "version": "v2.4.0",
+  "versionCode": 42,
+  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v2.4.0.zip",
+  "changelog": "v2.4.0（相对 v2.3.3）\n\n1. eSIM 修复合并开关 esim_fix（合并原 eid_guard，默认关）：① EID 校验旁路（native splice，OS10/OS11 双工厂 sha 钉值 + bind mount，不改分区）；② 尝试去除电子围栏——内置 libxposed hook APK（作用域 com.hihonor.esimservice）把 checkLocationAndOperator() 短路成 0，意图让装/激活海外 eSIM 不再需要模拟位置；开关开时 pm 安装、关时卸载，需在 LSPosed 管理器启用一次。围栏是否真绕过、纯切换「System busy」真因均待社区验证（真机仅验模块自身装卸/挂载/面板正常、无回归无崩溃）。\n2. 面板 EID_LIVE 读数补 OS11 sha（原仅认 OS10，OS11 挂载 live 也误报 absent）。\n"
 }

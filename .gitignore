@@ -3,3 +3,6 @@ docs/
 !dist/*.zip
 *.log
 *.local
+*.jks
+esimhook/build/
+esimhook/dist/

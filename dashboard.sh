@@ -171,7 +171,7 @@ CONF_LSP_FIX|$CONF|lsp_fix
 CONF_THIRDPARTY_HOME|$CONF|thirdparty_home
 CONF_VOLTE_FIX|$CONF|volte_fix
 CONF_QR_FIX|$CONF|qr_fix
-CONF_EID_GUARD|$CONF|eid_guard
+CONF_ESIM_FIX|$CONF|esim_fix
 CONF_SMARTAE_TARGET|$CONF|smartae_target
 CONF_SHARPEN_LVL|$CONF|sharpen_level
 CONF_BEAUTY_CUT|$CONF|beauty_cut
@@ -184,6 +184,7 @@ TPH_STATE|$ST/tph|l
 VOLTE_STATE|$ST/volte|l
 QR_STATE|$ST/qr|l
 EID_STATE|$ST/eid|l
+ESIMHOOK_STATE|$ST/esimhook|l
 CAM_STATE|$ST/cam|l
 SHP_STATE|$ST/shp|l
 BTY_STATE|$ST/bty|l
@@ -297,15 +298,19 @@ echo "SIG1_NR=$(printf '%s\n' "$SN" | sed -n 2p | tr -d ' ')"
 Q=$(grep -oE 'mPreciseDataConnectionStates=\{.*' "$RG")
 echo "SIG0_QCI=$(printf '%s\n' "$Q" | sed -n 1p | grep -oE 'qosClassId=[0-9]+' | cut -d= -f2 | sort -u | tr '\n' '+' | sed 's/+*$//')"
 echo "SIG1_QCI=$(printf '%s\n' "$Q" | sed -n 2p | grep -oE 'qosClassId=[0-9]+' | cut -d= -f2 | sort -u | tr '\n' '+' | sed 's/+*$//')"
-# eid_guard live state: off / on / unsupported / mount-failed / patch-failed /
+# esim_fix live state: off / on / unsupported / mount-failed / patch-failed /
 # missing. EID_LIVE reads the sha through the /system path, so it reports what
 # com.android.phone would actually dlopen: "patched" only while the bind mount is
 # live, "factory" the moment it is gone (same trick as the camfix read-back).
 EID_TGT=/system/lib64/liboeminfoInf_esim.so
 EID_LIVE=$(sha256sum "$EID_TGT" 2>/dev/null | cut -c1-8)
-if [ "$EID_LIVE" = "faf613c5" ]; then echo "EID_LIVE=patched"
-elif [ "$EID_LIVE" = "02fa215f" ]; then echo "EID_LIVE=factory"
-else echo "EID_LIVE=absent"; fi
+# both ROM pins: OS10 patched faf613c5 / factory 02fa215f, OS11 patched 28e35be8
+# / factory 2a20d357 (eidfix/apply.sh holds the full sha + offset per ROM).
+case "$EID_LIVE" in
+  faf613c5|28e35be8) echo "EID_LIVE=patched" ;;
+  02fa215f|2a20d357) echo "EID_LIVE=factory" ;;
+  *) echo "EID_LIVE=absent" ;;
+esac
 # who has the lib mapped: the class only loads on a SIM state change, so "none"
 # is the normal resting state (and the reason a toggle can land without a reboot).
 # One grep over the whole glob - a per-pid loop would run on every panel poll.

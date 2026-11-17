@@ -300,7 +300,13 @@ JVM），随后发一次 `cmd package has-feature android.software.home_screen`�
   即 plain umount 还原，重开相机生效。紫边（CAC 横向色差）在加密 tuning 内，
   AP 侧无明文抓手，只能靠降锐化 + 压高光间接缓解。
 
-## eSIM EID 校验旁路（`eid_guard`，默认关）
+## eSIM 修复（`esim_fix`，默认关；v2.4.0 合并原 `eid_guard`）
+
+一个开关同时驱动两半：① EID 校验旁路（native splice，本节上半）；② 电子围栏去除
+（内置 libxposed hook APK，见下方「电子围栏去除」）。升级时旧 `eid_guard=1` 会自动
+迁移成 `esim_fix=1`。
+
+### ① EID 校验旁路
 
 反馈：卡 2 被禁用并弹 `com.hihonor.dsdscardmanager/.OemEidMismatchDialogActivity`
 （「当前使用的非法 eSIM 无法与设备匹配，已将该卡禁用」）。链路是
@@ -315,7 +321,7 @@ JVM），随后发一次 `cmd package has-feature android.software.home_screen`�
 `.gnu_debugdata` 里的 mini symtab）。模块自带 8 字节
 `mov x0,#0` + `ret`，把 JNI 返回变成 NULL jstring，`TextUtils.isEmpty()` 读作空。
 
-- **不需要额外装 LSPosed 模块**：投递方式和相机旋钮一致——出厂 lib sha256
+- **这一半不需要 LSPosed**：投递方式和相机旋钮一致——出厂 lib sha256
   （`02fa215f…`）校验通过才生成 /data/adb 副本、splice、按目标原生标签
   `system_lib_file` chcon，再 bind mount 覆盖 /system 原件。不改分区、不动
   dm-verity，关开关或卸载即 plain umount。
@@ -330,6 +336,42 @@ JVM），随后发一次 `cmd package has-feature android.software.home_screen`�
 - `region_mode=海外` 是零补丁的替代路径（`IS_CHINA_REGION` 是 static final 的
   locale 门，第一道门就返回 false），代价是整个国行身份变海外。
 - 固件升级后出厂 sha 不匹配 → 状态 `unsupported`，完全不动该 lib。
+
+### ② 尝试去除电子围栏（效果待社区验证）
+
+> 尝试修复：真机（LDY-AN00 / MagicOS 11）只验证了模块自身正常——开关 on/off 驱动
+> EID 挂载与 hook APK 装卸往返干净、面板读数正确、无回归无崩溃。围栏是否真绕过、
+> 纯切换「System busy」真因，均需有海外 eSIM 的社区用户反馈，未在此拍板。
+
+反馈：「之前国内还有电子围栏，装 eSIM 需要模拟位置，能去除吗」。链路是 LPA
+（`com.hihonor.esimservice`）下载/激活 profile 时调 `e.checkLocationAndOperator(String)`：
+它先 `getCurrentArea()`——读注册 PLMN（`460` 开头判国内）+ 经 HiGeo binder
+（`com.hihonor.lbs` `IHonorHiGeoService` tx85）拿 GPS 定位，再用 `InOutChinaUtil`
+（Java，`china.geojson` 多边形）判境内外。对**海外 profile**（非国内运营商、
+profileMcc≠460）：area==1（境外）才放行返回 0，area==0（境内）返回 1 拦截
+（`onDownloadSubscription` 见 ≠0 即回 290 拒绝）。所以人在国内装海外 eSIM 会被拦，
+社区靠模拟位置把 area 骗成 1。
+
+- 修法：模块内置一个 libxposed hook APK（`esimhook/esimfix.apk`，包名
+  `com.tamer.esimfix`，作用域 `com.hihonor.esimservice`），把
+  `e.checkLocationAndOperator` 直接短路成 `0`，整条 GPS/HiGeo/PLMN 判定都不再跑。
+  这是 Java 系统应用内的逻辑，纯 root 的 bind mount 够不着、重签又被禁，所以只能
+  走 hook。`esim_fix=1` 时守护进程开机后 `pm install`、`=0` 时 `pm uninstall`，
+  卸载模块也会一并卸掉它。
+- **一次性手动步骤**：在 LSPosed 管理器里把「eSIM 围栏去除」模块**启用一次**
+  （勾选作用域已预置 `com.hihonor.esimservice`，`staticScope=true`）。启用后重启
+  该应用进程或重启手机，hook 才注入。面板状态行会提示这一步。
+- 类名 `e` / 方法名 `checkLocationAndOperator` 按此固件构建钉死；固件升级混淆漂移
+  时 hook 会记一条 ERROR 日志（`obfuscation drift`）并放行原逻辑，不会崩。
+- **关于「切换不了 / System busy」**：纯切换（profile 详情页的 Enable 开关）走
+  `EuiccManager.switchToSubscription` → `EuiccController` → `EuiccCardController`
+  → `EuiccPort.switchToProfile`（纯 ES10），**五层都没有位置/区域门**；
+  `onSwitchToSubscriptionWithPort` 只有 OTA 门 `q()`，无 area 判定。
+  「System busy. Try again later.」是 `ProfileDetailsFragment.onSubscriptionError`
+  对**任何 result≠276** 的通用兜底文案（276 才显示 PPR1 专用文案），真因只在
+  logcat 的 `onSubscriptionError result=` 码里。因此反馈里的「切换」大概率指
+  下载/激活流程（受围栏门控，本开关已修）；若确为纯 Enable 切换失败，需抓
+  `result=` 码再定位，目前未拍板。
 
 ## 安装
 
@@ -366,7 +408,7 @@ thirdparty_home=0         # 第三方桌面解锁（不依赖 lsp_fix，重启�
 volte_fix=1               # 为在插 SIM 补 type=ims 接入点（国内外卡通用）
 volte_radio_cycle=1       # 首次插入 ims 行后切一次飞行模式重建数据配置
 qr_fix=1                  # 扫码场景禁用主摄 QRFUSION 6 帧融合
-eid_guard=0               # 卡2 eSIM EID 校验旁路（开=合法 eSIM 激活码添加会失败，需先关并重启）
+esim_fix=0                # eSIM 修复合并开关（① EID 校验旁路 + ② 电子围栏去除；开=合法 eSIM 激活码添加会失败需先关并重启，② 需在 LSPosed 启用一次）
 smartae_target=185        # 主摄 SmartAE 目标（出厂 200，推荐 170-195，0=关）
 sharpen_level=2           # 主摄 EE 锐化档位（0=关/出厂，1=×1.25，2=×1.5，3=×2.0，4=×2.5）
 beauty_cut=30             # 前置人像磨皮/美型降幅%（出厂 0，推荐 10-50；拍照页自拍尚未覆盖，修复中）
@@ -432,7 +474,7 @@ KernelSU 管理器 → 模块详情 → **WebUI**：
 - MCS 绕过 bypassable VPN 是 GMS 行为，模块无法修；只能换非可旁路/全局 VPN。
 - `region_mode=overseas` 的副作用不止文中列出的几项（区域化行为是一个面，不是一条
   清单）；只想动谷歌管控链、不想改区域身份的用户请留在 `default` + `fcm_unlock`。
-- `eid_guard=1` 让本机 eSIM EID 读数变空，**国内运营商合法 eSIM 的激活码/扫码添加
+- `esim_fix=1` 的 EID 旁路半让本机 eSIM EID 读数变空，**国内运营商合法 eSIM 的激活码/扫码添加
   会失败**（那条流程要把 EID 送 modem），添加前请关闭并重启；实体插卡不受影响。
 - `thirdparty_home=1` 依赖系统管家（`com.hihonor.systemmanager`）的抗恶意软件引擎在
   设默认桌面那一刻能作答——它按 home_screen 特性位放行，但引擎无响应时 `LAUNCHER`

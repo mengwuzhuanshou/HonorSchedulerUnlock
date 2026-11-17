@@ -132,7 +132,7 @@ canvas{width:100%;height:150px;display:block}
   <div class="row"><span class="n">第三方桌面解锁(换默认桌面, 不依赖 lsp_fix, 重启生效)</span><button class="tg" id="tgTph">…</button></div>
   <div class="note" id="dTph">—</div>
   <div class="row"><span class="n">VoLTE解锁(自动补ims接入点, 国内外卡通用)</span><button class="tg" id="tgVolte">…</button></div>
-  <div class="row"><span class="n">eSIM EID 校验旁路 · 卡2「非法 eSIM 已禁用」</span><button class="tg" id="tgEid">…</button></div>
+  <div class="row"><span class="n">eSIM 修复（EID 校验旁路 + 电子围栏去除）</span><button class="tg" id="tgEid">…</button></div>
   <div class="note" id="dEidNote">—</div>
   <div class="row"><span class="n">滑动限频（大簇 policy4）</span><select class="sel" id="selScroll">
     <option value="0">关</option>
@@ -397,39 +397,26 @@ function render(){
   var hsParts = (D.ADP_HS || '').split(':');
   var hsOk = num(hsParts[2]) > 0;                       // adapter reported a tier
   var dcOn = / 1/.test(D.CHG_MODE || '');               // a direct-charge lane active
-  // This chip says whether the iin fight is winning, read off the two nodes the
-  // fight actually moves (2026-11-03 SCP-head captures, both plug frames):
-  //   our vote  = the iface_lanes row of interface/iin_limit. `thermal dcp 20000`
-  //               lands there and the kernel echoes it back as the accepted vote
-  //               (dcp:iin_limit voter thermal,id:0 en:on val:20000), so that row
-  //               IS the readback - no kmsg needed.
-  //   the floor = primary_chg/input_current_limit, what the kernel programmed the
-  //               charge IC from M:ilim eff = min over the enabled voters.
-  // Measured: our row 20000 accepted, M:ilim still took its min from the vendor's
-  // thermal,id:2 = 1200 -> IC 1200000. That gap is the real 被压制.
-  // The direct-charge lane width (DC_*_IIN) says nothing about this fight: sc/hsc
-  // are a different lane, clamped in-kernel by temp_para (at >=44.0C
-  // 12000/14500 -> 6000/1700/0 whatever we write), so NTC goes in the label as the
-  // cause instead of replacing the verdict.
-  // Not the module losing either: with no direct-charge lane at all (plain 5V
-  // USB/DCP) the adapter itself sets the ceiling and there is nothing to unlock.
+  // State light for the module's unlock ACTION, not a readout: current, voltage,
+  // temp and the matched iin_limit row already have their own cells below. Vote
+  // accepted (ourVote >= want) => normal; the IC floor (input_current_limit =
+  // M:ilim min) sitting below our vote because the vendor thermal aggregate wins
+  // the min is the min-model normal state, not a fault. Only a missing or
+  // un-reasserted vote (ourVote < want, daemon not fighting) warns.
   var dcAvail = dcOn || hsOk || num(D.ADP_SUPPORT) > 0;
   var lanes = (D.CONF_IFACE_LANES || 'dcp').split(' ');
   var want = num(D.CONF_MAX_IIN) || 0;
   var ourVote = 0;
-  (D.IIN_LIMIT || '').split(';').forEach(function (r) {
-    var p = r.trim().split(' ');
-    if (lanes.indexOf(p[0]) >= 0) ourVote = Math.max(ourVote, num(p[1]) || 0);
-  });
-  var eff = (num(D.PC_AICR) || 0) / 1000;               // mA the IC was given
-  var why = (temp !== null && temp >= 440) ? '（NTC ' + (temp / 10).toFixed(0) + '°C 厂商温表）' : '';
+  var iinToks = (D.IIN_LIMIT || '').split(/[;\s]+/);   // node reads back space-joined lane/mA pairs
+  for (var i = 0; i + 1 < iinToks.length; i += 2) {
+    if (lanes.indexOf(iinToks[i]) >= 0) ourVote = Math.max(ourVote, num(iinToks[i + 1]) || 0);
+  }
   if (D.PAUSED === '1') { cu.textContent = '已暂停'; cu.className = 'chip off'; }
   else if (!isCharging) { cu.textContent = '未充电'; cu.className = 'chip off'; }
   else if (!dcAvail) { cu.textContent = '非直充（无高功率通道）'; cu.className = 'chip off'; }
   else if (!want || ourVote <= 0) { cu.textContent = '票读不到'; cu.className = 'chip off'; }
   else if (ourVote < want) { cu.textContent = '票未生效 ' + ourVote + '/' + want + ' mA'; cu.className = 'chip warn'; }
-  else if (eff >= want) { cu.textContent = '解锁生效'; cu.className = 'chip ok'; }
-  else { cu.textContent = '被压制 ' + eff.toFixed(0) + ' mA' + why; cu.className = 'chip warn'; }
+  else { cu.textContent = '解锁生效'; cu.className = 'chip ok'; }
   tgSet('tgScreen', D.CONF_SCREEN_ON_UNLOCK === '1');
   tgSet('tgOff', D.CONF_UNLOCK_OFF === '1');
   tgSet('tgLb', D.CONF_LAUNCH_BOOST === '1');
@@ -454,21 +441,36 @@ function render(){
   tgSet('tgTph', D.CONF_THIRDPARTY_HOME === '1');
   tgSet('tgVolte', D.CONF_VOLTE_FIX === '1');
   tgSet('tgQr', D.CONF_QR_FIX === '1');
-  tgSet('tgEid', D.CONF_EID_GUARD === '1');
-  // eid_guard live state: the sha read through the /system path is what the phone
-  // process would dlopen, so "patched" is proof the bind mount is live right now
+  tgSet('tgEid', D.CONF_ESIM_FIX === '1');
+  // esim_fix half 1 (EID splice): the sha read through the /system path is what
+  // com.android.phone would dlopen, so "patched" proves the bind mount is live.
   var de = $('dEidNote'), es = D.EID_STATE || '', el = D.EID_LIVE || '';
-  if (D.CONF_EID_GUARD !== '1') {
-    de.innerHTML = '<span style="color:var(--dim)">已关闭（出厂校验在工作' + (el === 'factory' ? '' : '，当前读数 ' + (el || '?')) + '）</span>';
+  var eidHtml;
+  if (D.CONF_ESIM_FIX !== '1') {
+    eidHtml = '<span style="color:var(--dim)">EID 旁路：已关闭（出厂校验在工作' + (el === 'factory' ? '' : '，当前读数 ' + (el || '?')) + '）</span>';
   } else if (el === 'patched') {
-    de.innerHTML = '<span style="color:var(--ok)">✓ 校验已旁路（EID 读数已置空）</span> <span style="color:var(--warn)">添加国内运营商 eSIM 前需关闭并重启</span>';
+    eidHtml = '<span style="color:var(--ok)">✓ EID 校验已旁路（读数已置空）</span> <span style="color:var(--warn)">添加国内运营商 eSIM 前需关闭并重启</span>';
   } else if (es === 'unsupported') {
-    de.innerHTML = '<span style="color:var(--warn)">该固件的 liboeminfoInf_esim.so 与补丁基准不符，已自动停用</span>';
+    eidHtml = '<span style="color:var(--warn)">EID 旁路：该固件 lib 与补丁基准不符，已自动停用</span>';
   } else if (es === 'mount-failed' || es === 'patch-failed' || es === 'missing') {
-    de.innerHTML = '<span style="color:var(--warn)">' + es + '：挂载/生成失败，校验未旁路</span>';
+    eidHtml = '<span style="color:var(--warn)">EID 旁路：' + es + '，校验未旁路</span>';
   } else {
-    de.innerHTML = '<span style="color:var(--dim)">等待守护重载…（当前读数 ' + (el || '?') + '）</span>';
+    eidHtml = '<span style="color:var(--dim)">EID 旁路：等待守护重载…（当前读数 ' + (el || '?') + '）</span>';
   }
+  // esim_fix half 2 (geofence hook APK): state file written post-boot by service.sh.
+  // We cannot detect LSPosed enablement from here, so the one-time enable note
+  // stays visible whenever the APK is installed.
+  var hk = D.ESIMHOOK_STATE || '', hkHtml;
+  if (D.CONF_ESIM_FIX !== '1') {
+    hkHtml = '<span style="color:var(--dim)">电子围栏去除：已关闭</span>';
+  } else if (hk === 'installed' || hk === 'installed-enable-in-lsposed') {
+    hkHtml = '<span style="color:var(--ok)">✓ 围栏 hook 已安装</span> <span style="color:var(--warn)">需在 LSPosed 管理器启用「eSIM 围栏去除」一次（作用域已预置 com.hihonor.esimservice）</span>';
+  } else if (hk === 'install-failed' || hk === 'missing-apk') {
+    hkHtml = '<span style="color:var(--warn)">围栏 hook：' + hk + '</span>';
+  } else {
+    hkHtml = '<span style="color:var(--dim)">围栏 hook：等待开机后安装…</span>';
+  }
+  de.innerHTML = eidHtml + '<br>' + hkHtml;
   // LSPosed system-scope fix: the locale mask lives only in the early-boot
   // parse window; state file shows whether the zh-CN restore has run
   var dl = $('dLsp');
@@ -730,7 +732,7 @@ function start(){
          PC_LOCK:'en: 0, target icc: 3225000 uA, target aicr: 1000000 uA',AICR_SLOT:'?',IF_VBUS:'lvc 0 sc 0 hsc 18500',
          DAEMON:'1',TPOLICY:'1',VER:'demo',
          CONF_MAX_IIN:'20000',CONF_IFACE_LANES:'dcp',
-         CONF_VPN_LOCK:'0',VPN_LOCK_STATE:'idle',CONF_REGION_MODE:'default',REGION_OPTB:'156',REGION_LOCALE:'CN',CONF_LSP_FIX:'0',LSP_STATE:'',CONF_THIRDPARTY_HOME:'0',CHARS:'default',TPH_STATE:'',CONF_VOLTE_FIX:'0',VOLTE_STATE:'',CONF_QR_FIX:'0',QR_STATE:'',CONF_EID_GUARD:'0',EID_STATE:'off',EID_LIVE:'factory',EID_MAPPED:'',CONF_SMARTAE_TARGET:'185',CAM_STATE:'on 185',EFF_TARGET:'185',CONF_SHARPEN_CUT:'35',SHP_STATE:'on 35 16/16',EFF_SHARPEN:'35',CONF_BEAUTY_CUT:'30',BTY_STATE:'on 30',EFF_BEAUTY:'30',CONF_UW_EXP_MS:'910',CONF_UW_ISO_GAIN:'100',UW_STATE:'on exp=910 iso=100 fps=1',EFF_UW_EXP:'910',EFF_UW_ISO:'100',EFF_UW_FPS:'1',ADP_SUPPORT:'0',SIG_OPS:'',SIG_TYPES:'',SIG0_LTE:'',SIG1_LTE:'',SIG0_BAND:'',SIG1_BAND:'',SIG0_NR:'',SIG1_NR:'',FCM_STATE:'ok n=2 probe:ok',MCS_GMS:'0',VPN_BYP:'none',VPN_GMS_IN:'0',EXEC_UID:'0'};
+         CONF_VPN_LOCK:'0',VPN_LOCK_STATE:'idle',CONF_REGION_MODE:'default',REGION_OPTB:'156',REGION_LOCALE:'CN',CONF_LSP_FIX:'0',LSP_STATE:'',CONF_THIRDPARTY_HOME:'0',CHARS:'default',TPH_STATE:'',CONF_VOLTE_FIX:'0',VOLTE_STATE:'',CONF_QR_FIX:'0',QR_STATE:'',CONF_ESIM_FIX:'0',EID_STATE:'off',EID_LIVE:'factory',EID_MAPPED:'',ESIMHOOK_STATE:'off',CONF_SMARTAE_TARGET:'185',CAM_STATE:'on 185',EFF_TARGET:'185',CONF_SHARPEN_CUT:'35',SHP_STATE:'on 35 16/16',EFF_SHARPEN:'35',CONF_BEAUTY_CUT:'30',BTY_STATE:'on 30',EFF_BEAUTY:'30',CONF_UW_EXP_MS:'910',CONF_UW_ISO_GAIN:'100',UW_STATE:'on exp=910 iso=100 fps=1',EFF_UW_EXP:'910',EFF_UW_ISO:'100',EFF_UW_FPS:'1',ADP_SUPPORT:'0',SIG_OPS:'',SIG_TYPES:'',SIG0_LTE:'',SIG1_LTE:'',SIG0_BAND:'',SIG1_BAND:'',SIG0_NR:'',SIG1_NR:'',FCM_STATE:'ok n=2 probe:ok',MCS_GMS:'0',VPN_BYP:'none',VPN_GMS_IN:'0',EXEC_UID:'0'};
   } else {
     tick();
     timer = setInterval(function(){ if (!document.hidden) tick(); }, 3000);
@@ -758,7 +760,7 @@ function start(){
   $('tgTph').onclick = function(){ setKey('thirdparty_home', D.CONF_THIRDPARTY_HOME === '1' ? '0' : '1', this); };
   $('tgVolte').onclick = function(){ setKey('volte_fix', D.CONF_VOLTE_FIX === '1' ? '0' : '1', this); };
   $('tgQr').onclick = function(){ setKey('qr_fix', D.CONF_QR_FIX === '1' ? '0' : '1', this); };
-  $('tgEid').onclick = function(){ setKey('eid_guard', D.CONF_EID_GUARD === '1' ? '0' : '1', this); };
+  $('tgEid').onclick = function(){ setKey('esim_fix', D.CONF_ESIM_FIX === '1' ? '0' : '1', this); };
   // SmartAE Target: clamp client-side to the same band the bridge enforces,
   // so a typo can never write a value the daemon would then silently rewrite.
   var camApply = function(btn){
