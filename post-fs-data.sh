@@ -4,10 +4,73 @@
 # daemon; nothing here can stall boot.
 MODDIR=${0%/*}
 . "$MODDIR/state.sh"
+
+# Virtual A/B still owns system_a during this boot; touching it risks killing
+# snapuserd and turning the merge into a bootloop. Skip the whole boot, not a
+# delayed retry: the pre-zygote property/mount window cannot be replayed later.
+if st_merge_pending; then
+  mkdir -p "$ST" 2>/dev/null
+  rm -f "$ST/pid" "$ST/thermal_mounted"
+  st_merge_boot=$(st_boot_id)
+  [ -n "$st_merge_boot" ] && printf '%s\n' "$st_merge_boot" > "$ST/merge_skip"
+  exit 0
+fi
+rm -f "$ST/merge_skip"
+rm -f "$ST/pid"
 st_init
 
 CONF=$ST/conf
 [ -f "$CONF" ] && . "$CONF" 2>/dev/null
+[ -n "$scroll_cap" ] || scroll_cap=800000
+HCU_UNIPERF_FLAG=/data/vendor/iaware/hcu_scroll_cap
+rm -f "$HCU_UNIPERF_FLAG" "$HCU_UNIPERF_FLAG.tmp"
+if [ "$scroll_cap" != "0" ]; then
+  : > "$HCU_UNIPERF_FLAG.tmp" 2>/dev/null \
+    && chown 1000:1000 "$HCU_UNIPERF_FLAG.tmp" 2>/dev/null \
+    && chmod 600 "$HCU_UNIPERF_FLAG.tmp" 2>/dev/null \
+    && chcon u:object_r:data_vendor_iaware:s0 "$HCU_UNIPERF_FLAG.tmp" 2>/dev/null \
+    && mv -f "$HCU_UNIPERF_FLAG.tmp" "$HCU_UNIPERF_FLAG" 2>/dev/null
+fi
+
+# UniPerf touch guard overlay. This KSU build does not magic-mount module
+# system directories, so bind the patched library before any vendor process can
+# dlopen it. The stock partition remains untouched.
+UNIPERF_TGT=/vendor/lib64/libmtk_wrapper.so
+UNIPERF_SRC=$MODDIR/system/vendor/lib64/libmtk_wrapper.so
+UNIPERF_ST=$ST/uniperf_filter
+if [ -f "$UNIPERF_SRC" ] && [ -f "$UNIPERF_TGT" ]; then
+  chcon u:object_r:vendor_file:s0 "$UNIPERF_SRC" 2>/dev/null
+  if grep -aq " $UNIPERF_TGT " /proc/mounts 2>/dev/null; then
+    echo "on" > "$UNIPERF_ST" 2>/dev/null
+  elif mount --bind "$UNIPERF_SRC" "$UNIPERF_TGT" 2>/dev/null; then
+    echo "on" > "$UNIPERF_ST" 2>/dev/null
+  else
+    echo "mount-failed" > "$UNIPERF_ST" 2>/dev/null
+  fi
+else
+  umount "$UNIPERF_TGT" 2>/dev/null
+  echo "off" > "$UNIPERF_ST" 2>/dev/null
+fi
+
+# Hash-gated overlay: suppress only PowerHAL's CPU4 1.6 GHz write during touch.
+POWERHAL_TGT=/vendor/lib64/libpowerhal.so
+POWERHAL_SRC=$MODDIR/system/vendor/lib64/libpowerhal.so
+POWERHAL_ST=$ST/powerhal_filter
+POWERHAL_STOCK_SHA=914bd1a92e679920f36adf8957e792ccaec4cc8ea283b5481034d5d38d20a13c
+if [ "$scroll_cap" != "0" ] && [ -f "$POWERHAL_SRC" ] && [ -f "$POWERHAL_TGT" ] \
+    && [ "$(sha256sum "$POWERHAL_TGT" 2>/dev/null | cut -d' ' -f1)" = "$POWERHAL_STOCK_SHA" ]; then
+  chcon u:object_r:vendor_file:s0 "$POWERHAL_SRC" 2>/dev/null
+  if grep -aq " $POWERHAL_TGT " /proc/mounts 2>/dev/null; then
+    echo "on" > "$POWERHAL_ST" 2>/dev/null
+  elif mount --bind "$POWERHAL_SRC" "$POWERHAL_TGT" 2>/dev/null; then
+    echo "on" > "$POWERHAL_ST" 2>/dev/null
+  else
+    echo "mount-failed" > "$POWERHAL_ST" 2>/dev/null
+  fi
+else
+  umount "$POWERHAL_TGT" 2>/dev/null
+  echo "off" > "$POWERHAL_ST" 2>/dev/null
+fi
 
 # remove a leftover thermal policy override from older versions.
 # WARNING: do NOT re-add this. Delivering a vtskin-DISABLING policy makes
@@ -18,7 +81,6 @@ if [ -f /data/vendor/thermal/thermal.conf ]; then
     && rm -f /data/vendor/thermal/thermal.conf
 fi
 rm -f $ST/thermal_mounted
-rm -f $ST/pid
 
 # Region identity. Both region levers are pinned here because every consumer
 # reads them exactly once, at process start (static final), so a later write

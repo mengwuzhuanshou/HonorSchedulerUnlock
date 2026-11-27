@@ -5,6 +5,11 @@
 # the way it is - are documented at do_unlock/iface_snapshot below.
 MODDIR=${0%/*}
 . "$MODDIR/state.sh"
+if st_merge_skip_active || st_merge_pending; then
+  rm -f "$ST/pid"
+  exit 0
+fi
+rm -f "$ST/merge_skip"
 st_init
 CONF=$ST/conf
 LOG=$ST/log
@@ -111,11 +116,10 @@ protocol_poke=1
 # launch caps (p4<=3.0G / p7<=3.5G) -> whole window runs at cluster max.
 launch_boost=1
 launch_boost_ms=2000
-# scroll clamp: policy4 (big cluster) max in kHz while the finger is down,
-# same QoS vote channel (100% occupancy measured at >=10Hz renewal).
-# Touch source = wakeup_sources event2 counter (real touches only).
-# Taobao 120Hz ladder (2026-09-07): 0.8G == 0.9G frame pacing (legacy janky
-# 13.75% vs 14.50%, p99 21 vs 26ms), 0.7G+ degrades monotonically -> 0.8G.
+# scroll clamp: policy4 (big cluster) max in kHz on the first real touch down.
+# Reads the evdev device directly, so there is no startup sample, polling, hold
+# timer, or periodic renewal. One DOWN writes the cap; the matching UP restores
+# the normal policy4 pair. Injected InputManager events never reach this device.
 scroll_cap=800000
 # keep iAware app-preload features off (cloud may re-push values)
 disable_preload=1
@@ -370,6 +374,27 @@ conf_add verbose 0
 # first source above ran without the new keys -> without this, fcm_* stay
 # empty until the next reboot (same class of bug as the v1.8.0 template lesson)
 . "$CONF" 2>/dev/null
+HCU_UNIPERF_FLAG=/data/vendor/iaware/hcu_scroll_cap
+rm -f "$HCU_UNIPERF_FLAG" "$HCU_UNIPERF_FLAG.tmp"
+HCU_POWERHAL_FLAG_DIR=/data/vendor/powerhal
+HCU_POWERHAL_FLAG=$HCU_POWERHAL_FLAG_DIR/hcu_scroll_cap
+HCU_POWERHAL_FLAG_TMP=$HCU_POWERHAL_FLAG_DIR/.hcu_scroll_cap.tmp
+rm -f "$HCU_POWERHAL_FLAG"
+if [ "$scroll_cap" != "0" ] && [ -n "$scroll_cap" ]; then
+  : > "$HCU_UNIPERF_FLAG.tmp" 2>/dev/null \
+    && chown 1000:1000 "$HCU_UNIPERF_FLAG.tmp" 2>/dev/null \
+    && chmod 600 "$HCU_UNIPERF_FLAG.tmp" 2>/dev/null \
+    && chcon u:object_r:data_vendor_iaware:s0 "$HCU_UNIPERF_FLAG.tmp" 2>/dev/null \
+    && mv -f "$HCU_UNIPERF_FLAG.tmp" "$HCU_UNIPERF_FLAG" 2>/dev/null
+  mkdir -p "$HCU_POWERHAL_FLAG_DIR" 2>/dev/null
+  rm -f "$HCU_POWERHAL_FLAG_TMP" 2>/dev/null
+  : > "$HCU_POWERHAL_FLAG_TMP" 2>/dev/null \
+    && chown 1000:1000 "$HCU_POWERHAL_FLAG_TMP" 2>/dev/null \
+    && chmod 644 "$HCU_POWERHAL_FLAG_TMP" 2>/dev/null \
+    && chcon u:object_r:mtk_powerhal_data_file:s0 "$HCU_POWERHAL_FLAG_TMP" 2>/dev/null
+else
+  rm -f "$HCU_POWERHAL_FLAG_TMP" 2>/dev/null
+fi
 
 log() {
   [ "$verbose" = "1" ] || return 0
@@ -1127,24 +1152,53 @@ fi
 #          launch_boost_ms<=5000; zero-fork fifo pacer for the renewal ticks.
 NODE=/proc/powerhal_cpu_ctrl/perfserv_freq
 FG_FIF=/data/local/tmp/.hcu_tick
-SC_FIF=/data/local/tmp/.hcu_tick2
 FG_FLAG=/data/local/tmp/.hcu_lb_active
 LB_EPOCH=/data/local/tmp/.hcu_lb_epoch
+SC_TOUCH=$ST/scroll_touch
+SC_DEV=/dev/input/event2
+# launch_boost and the evdev listener run in separate shells; serialize their
+# read-modify-write transitions so a boost release cannot strand a stale cap.
+NODE_LOCK=$ST/perfserv_freq.lock
 FG_P0MAX=2700000; FG_P4MAX=3500000; FG_P7MAX=4210000; FG_PMIN=300000
-rm -f $FG_FLAG 2>/dev/null   # stale flag would pause scroll clamp until next boost
+rm -f $FG_FLAG "$SC_TOUCH" 2>/dev/null
 [ "$launch_boost_ms" -gt 5000 ] 2>/dev/null && launch_boost_ms=5000
-lb_boost_on() {
+sc_cap_on() (
+  [ "$scroll_cap" != "0" ] && [ -n "$scroll_cap" ] || exit 0
+  flock -x 9
+  [ -f "$SC_TOUCH" ] && exit 0
+  : > "$SC_TOUCH" 2>/dev/null
+  if ! mv -f "$HCU_POWERHAL_FLAG_TMP" "$HCU_POWERHAL_FLAG" 2>/dev/null; then
+    rm -f "$HCU_POWERHAL_FLAG" 2>/dev/null
+    : > "$HCU_POWERHAL_FLAG" 2>/dev/null \
+      && chown 1000:1000 "$HCU_POWERHAL_FLAG" 2>/dev/null \
+      && chmod 644 "$HCU_POWERHAL_FLAG" 2>/dev/null \
+      && chcon u:object_r:mtk_powerhal_data_file:s0 "$HCU_POWERHAL_FLAG" 2>/dev/null
+  fi
+  [ -f "$FG_FLAG" ] || echo 4 $FG_PMIN $scroll_cap > $NODE 2>/dev/null
+) 9>"$NODE_LOCK"
+sc_cap_off() (
+  flock -x 9
+  [ -f "$SC_TOUCH" ] || exit 0
+  rm -f "$SC_TOUCH" 2>/dev/null
+  [ -f "$FG_FLAG" ] || echo 4 $FG_PMIN $FG_P4MAX > $NODE 2>/dev/null
+  mv -f "$HCU_POWERHAL_FLAG" "$HCU_POWERHAL_FLAG_TMP" 2>/dev/null \
+    || rm -f "$HCU_POWERHAL_FLAG" 2>/dev/null
+) 9>"$NODE_LOCK"
+lb_boost_on() (
+  flock -x 9
+  : > $FG_FLAG 2>/dev/null
   echo 0 $FG_P0MAX $FG_P0MAX > $NODE 2>/dev/null
   echo 4 $FG_P4MAX $FG_P4MAX > $NODE 2>/dev/null
   echo 7 $FG_P7MAX $FG_P7MAX > $NODE 2>/dev/null
-  : > $FG_FLAG 2>/dev/null
-}
-lb_boost_off() {
+) 9>"$NODE_LOCK"
+lb_boost_off() (
+  flock -x 9
   echo 0 $FG_PMIN $FG_P0MAX > $NODE 2>/dev/null
   echo 4 $FG_PMIN $FG_P4MAX > $NODE 2>/dev/null
   echo 7 $FG_PMIN $FG_P7MAX > $NODE 2>/dev/null
   rm -f $FG_FLAG 2>/dev/null
-}
+  [ -f "$SC_TOUCH" ] && echo 4 $FG_PMIN $scroll_cap > $NODE 2>/dev/null
+) 9>"$NODE_LOCK"
 fg_fifo() {  # $1 = fifo path; one long-sleep holder, readers use read -t (no fork)
   [ -p "$1" ] || { rm -f "$1"; mkfifo "$1" 2>/dev/null; }
   pgrep -f "sleep 99999999" >/dev/null 2>&1 || sleep 99999999 > "$1" 2>/dev/null &
@@ -1180,37 +1234,18 @@ if [ "$launch_boost" = "1" ]; then
   lb_watch &
   log "launch_boost watcher started (v2 perfserv_freq QoS pin)"
 fi
-# ---------- scroll cap (v2, QoS vote channel) ----------
-# Touch = wakeup_sources event2 event_count deltas (real finger only; injected
-# input is invisible to it). While touched (+hold ticks), re-write the policy4
-# vote pair with max=scroll_cap at ~20Hz; perfserv's scroll economy writes lose
-# the race (100% occupancy measured). Paused while a launch boost owns the pair
-# (flag file), resumed after.
+# ---------- scroll cap (event-driven evdev) ----------
 sc_watch() {
-  [ -p "$SC_FIF" ] || { rm -f "$SC_FIF"; mkfifo "$SC_FIF" 2>/dev/null; }
-  pgrep -f "sleep 99999998" >/dev/null 2>&1 || sleep 99999998 > "$SC_FIF" 2>/dev/null &
-  last_ev=X; touch_t=-99; tick=0; mode=IDLE
-  while :; do
-    tick=$((tick+1))
-    read -t 0.1 x < "$SC_FIF" 2>/dev/null || :
-    if [ $((tick % 2)) -eq 0 ]; then
-      ev=$(grep -m1 -s ^event2 /proc/wakeup_sources 2>/dev/null)
-      case $ev in "$last_ev") ;; *) touch_t=$tick; last_ev=$ev ;; esac
-    fi
-    if [ -f "$FG_FLAG" ]; then mode=BOOST; continue; fi
-    if [ $((tick - touch_t)) -lt ${scroll_hold_ticks:-4} ]; then
-      echo 4 $FG_PMIN $scroll_cap > $NODE 2>/dev/null
-      echo 4 $FG_PMIN $scroll_cap > $NODE 2>/dev/null
-      mode=SCROLL
-    elif [ "$mode" = SCROLL ]; then
-      echo 4 $FG_PMIN $FG_P4MAX > $NODE 2>/dev/null
-      mode=IDLE
-    fi
+  getevent -lt "$SC_DEV" 2>/dev/null | while IFS= read -r line; do
+    case "$line" in
+      *EV_KEY*BTN_TOUCH*DOWN*) sc_cap_on ;;
+      *EV_KEY*BTN_TOUCH*UP*) sc_cap_off ;;
+    esac
   done
 }
 if [ "$scroll_cap" != "0" ] && [ -n "$scroll_cap" ]; then
   sc_watch &
-  log "scroll_cap watcher started (v2 QoS cap=$scroll_cap)"
+  log "scroll_cap listener started (event-driven cap=$scroll_cap dev=$SC_DEV)"
 fi
 
 # ---------- FCM keep-alive unlock (v1.9) ----------

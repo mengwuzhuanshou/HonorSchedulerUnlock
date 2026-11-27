@@ -7,13 +7,13 @@
 
 - **充电电流对抗**：亮屏 / 熄屏全程对抗充电热限流，输入电流顶到协议上限，电池侧 ICHG 推到
   4A（BUCK 路径硬件上限），SCP / UFCS 直充满档；
-- **CPU 频率治理**：app 启动时三簇满频，滑动时大簇降频省电（默认 0.8G）；
+- **CPU 频率治理**：app 启动时三簇满频，真实触摸期间事件驱动限频（默认 0.8G，抬手还原）；
 - **FCM 推送保活**：国行 ROM 谷歌连通性探测换源，防 GMS 被断网 / 断推送；
 - **VoLTE 解锁**：为缺 `ims` 接入点的运营商自动补行，国内外卡通用；
 - **第三方桌面解锁**：不依赖 LSPosed/`lsp_fix` 就能把第三方桌面设为默认（开机前几秒掩住
   `ro.build.characteristics`，系统起来即还原，locale/区域身份不动）；
 - **相机修复**：扫码场景禁用 QRFUSION 多帧融合；SmartAE 曝光目标可调；主摄 MTK ISP EE 锐化档位；
-  前置美颜强度可调（当前仅人像模式，拍照页修复中）；超广角 0.7x 暗光长曝/ISO 增益可调。
+  前置美颜强度可调（人像与拍照页自拍均已覆盖）；超广角 0.7x 暗光长曝/ISO 增益可调。
 
 模块 id 仍为 `honor_charge_unlock`（配置与数据路径沿用，更名不改 id 以兼容已有安装）。
 
@@ -114,13 +114,21 @@ PM-QoS min/max 票对（slot 0-3→policy0、4-6→policy4、7→policy7），la
   （过滤后台拉起），结束于 `Displayed`（第一帧）或 `launch_boost_ms`（默认 2000，
   硬顶 5000）。动作：三簇 min=max 钉满（p0 2.7G / p4 3.5G / p7 4.21G），10–30Hz
   续写压过 perfserv 启动限频（原生 p4≤3.0G / p7≤3.5G）。
-- **scroll_cap**：触摸事件计数增量触发（真实触摸；合成注入不可见），松手 400ms
-  释放。动作：policy4 max 钳到 `scroll_cap`，launch boost 期间自动让位。实测阶梯
-  （淘宝连续滑动，0.9G→0.5G）：jank 14.50% / **13.75%（0.8G，甜点）** / 15.91% /
-  21.67% / 24.86%；0.7G 起单调劣化，p50 6→9ms 超出 120Hz 8.3ms 预算，故默认 0.8G。
+- **scroll_cap**：阻塞读取 `/dev/input/event2` 的 `BTN_TOUCH DOWN/UP`。DOWN 时把 policy4
+  max 钳到 `scroll_cap`，UP 时还原；launch boost 期间主动让位，boost 结束若仍在触摸则补一次
+  限频。v2.4.5 起拦截 UniPerf 触摸期 4400/4402/4404/4098/4112/13121 及紧随 UP 的首个
+  4404，v2.4.6 再过滤 PowerHAL 在触摸期对 CPU4 上限的 1.6GHz 周期回写。实测 30 次真实
+  触摸中，非 launch-boost 样本 15/15 保持 0.8GHz，未出现 1.6GHz 覆盖。档位阶梯
+  （淘宝连续滑动，0.9G→0.5G）jank 为 14.50% / **13.75%（0.8G，甜点）** / 15.91% /
+  21.67% / 24.86%；0.7G 起单调劣化，故默认 0.8G。
   小簇钳制实测再 +5% 劣化，默认关闭。
-- **开销**：全树 ≈3% 单核（小核）；fifo `read -t 0.1` 零 fork 节拍 + 5Hz 触摸轮询 +
-  logcat 流；launch 窗口 30 写/s（单写 µs 级）。
+- **开销**：触摸侧只有原有 evdev 阻塞监听，无 5Hz 轮询、400ms hold timer 或 200ms
+  续写；每次触摸正常路径两次文件 rename。PowerHAL 每次 `setCPUFreq` 多一次
+  `faccessat`，不新增常驻监听。native 覆盖仅在本机原库 SHA256 匹配时挂载，固件不符自动跳过。
+
+**OTA 合并保护（v2.4.1）**：检测到 Virtual A/B `snapuserd` 仍在合并时，本次开机
+`post-fs-data/service` 全程跳过，避免中断系统槽写入；下次正常开机自动恢复，不延迟重试、
+不改用户配置。该保护不替代 OTA 包签名或分区校验，只避免模块在合并窗口写入。
 
 ## FCM 推送保活（v1.9）
 
@@ -274,10 +282,9 @@ JVM），随后发一次 `cmd package has-feature android.software.home_screen`�
   取值：**0=关（出厂），1=×1.25，2=×1.5（默认，已实拍标定），3=×2.0，4=×2.5**；
   档位越高噪点/颗粒越明显，3/4 档未实拍标定。固件库 sha256 不符时完全不动。
 - 前置美颜降幅（`beauty_cut`，默认 30）：按白名单整数强度曲线缩放
-  `/odm/etc/camera/hwbeauty/front/hwbeauty_params.xml`，只动磨皮/瘦脸/大眼等
-  效果行；0=出厂，10–50=合理区间，封顶 90。**当前只覆盖前置人像
-  （cameraSceneMode=23）；拍照页自拍走 scene=0，读取的是
-  `hwbeauty_params_lp.xml`，该文件尚未纳入，旋钮在拍照页不生效，修复中。**
+  `/odm/etc/camera/hwbeauty/front/hwbeauty_params.xml` 与 `hwbeauty_params_lp.xml`，
+  分别覆盖前置人像与拍照页自拍；只动磨皮/瘦脸/大眼等效果行。0=出厂，10–50=合理区间，
+  封顶 90。
 - **超广角 0.7x 暗光太暗（`uw_exp_ms` / `uw_iso_gain`，默认 910ms / 100%）**：
   这台 ROM 的相机 App 不给超广角挂多帧夜景——0.7x「夜景模式」实拍 EXIF 与普通拍照
   完全相同（200ms / ISO4000 / SceneCaptureType=42），主摄夜景则是 7×130ms（应用日志
@@ -411,7 +418,7 @@ qr_fix=1                  # 扫码场景禁用主摄 QRFUSION 6 帧融合
 esim_fix=0                # eSIM 修复合并开关（① EID 校验旁路 + ② 电子围栏去除；开=合法 eSIM 激活码添加会失败需先关并重启，② 需在 LSPosed 启用一次）
 smartae_target=185        # 主摄 SmartAE 目标（出厂 200，推荐 170-195，0=关）
 sharpen_level=2           # 主摄 EE 锐化档位（0=关/出厂，1=×1.25，2=×1.5，3=×2.0，4=×2.5）
-beauty_cut=30             # 前置人像磨皮/美型降幅%（出厂 0，推荐 10-50；拍照页自拍尚未覆盖，修复中）
+beauty_cut=30             # 前置磨皮/美型降幅%（出厂 0，推荐 10-50；人像与拍照页自拍均覆盖）
 uw_exp_ms=910             # 超广 0.7x 暗光曝光上限 ms（出厂 200，0=关，150-999）
 uw_iso_gain=100           # 超广 AE 表 ISO 增益%（出厂 100，100-250；≥150 实测偏红）
 verbose=0                 # 1=写日志 /data/adb/honor_charge_unlock/log

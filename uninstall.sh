@@ -1,5 +1,14 @@
 #!/system/bin/sh
 . "${0%/*}/state.sh"
+(
+  flock -x 9
+  if [ -f "$ST/scroll_touch" ]; then
+    echo 4 300000 3500000 > /proc/powerhal_cpu_ctrl/perfserv_freq 2>/dev/null
+  fi
+) 9>"$ST/perfserv_freq.lock"
+pkill -9 -f "[g]etevent -lt /dev/input/event2" 2>/dev/null
+pkill -9 -f "sleep 99999998" 2>/dev/null
+rm -f "$ST/scroll_touch" /data/local/tmp/.hcu_tick2
 # 上一版把状态散在 /data/adb 顶层，两处都清掉（$ST 里是迁移后的名字）
 rm -f /data/adb/honor_charge_unlock.* /data/adb/honor_charge_unlock_diag.txt
 rm -rf /data/adb/camfix /data/adb/qrfix

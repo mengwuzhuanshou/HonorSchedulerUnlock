@@ -8,6 +8,14 @@ CONF=$ST/conf
 PIDF=$ST/pid
 
 do_restart() {
+  (
+    flock -x 9
+    if [ -f "$ST/scroll_touch" ]; then
+      echo 4 300000 3500000 > /proc/powerhal_cpu_ctrl/perfserv_freq 2>/dev/null
+    fi
+  ) 9>"$ST/perfserv_freq.lock"
+  pkill -9 -f "[g]etevent -lt /dev/input/event2" 2>/dev/null
+  rm -f "$ST/scroll_touch" /data/local/tmp/.hcu_tick2
   [ -f "$PIDF" ] && kill -9 "$(cat $PIDF)" 2>/dev/null
   pkill -9 -f "[h]onor_charge_unlock/service.sh" 2>/dev/null
   pkill -9 -f "[A]ctivityManager:I" 2>/dev/null

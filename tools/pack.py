@@ -29,7 +29,9 @@ FIXED = ["META-INF/com/google/android/update-binary",
          "camfix/hwbeauty_front_orig.xml",
          "camfix/hwbeauty_front_lp_orig.xml",
          "camfix/beauty.awk",
-         "webroot/index.html"]
+         "webroot/index.html",
+         "system/vendor/lib64/libmtk_wrapper.so",
+         "system/vendor/lib64/libpowerhal.so"]
 # EE tuning-DB page patches (v2.2.0 sharpen_level): one .bin/.txt/.sha per tier.
 # Deliberately dynamic so a tier added/removed in ee_patch/ is packaged as-is.
 FIXED += sorted(

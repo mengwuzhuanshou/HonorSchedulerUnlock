@@ -17,6 +17,22 @@
 # $ST/diag.txt          action.sh diag dump
 ST=/data/adb/honor_charge_unlock
 
+st_boot_id() {
+  cat /proc/sys/kernel/random/boot_id 2>/dev/null
+}
+
+st_merge_pending() {
+  [ "$(getprop init.svc.snapuserd 2>/dev/null)" = "running" ] \
+    || [ -n "$(pidof snapuserd 2>/dev/null)" ]
+}
+
+st_merge_skip_active() {
+  [ -f "$ST/merge_skip" ] || return 1
+  st_skip_boot=$(cat "$ST/merge_skip" 2>/dev/null)
+  st_skip_now=$(st_boot_id)
+  [ -n "$st_skip_now" ] && [ "$st_skip_boot" = "$st_skip_now" ]
+}
+
 # One-time move from the old flat layout. Safe to call on every start.
 #
 # When a name exists at BOTH paths, the flat one is not necessarily stale: a

@@ -1,6 +1,6 @@
 {
-  "version": "v2.4.0",
-  "versionCode": 42,
-  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v2.4.0.zip",
-  "changelog": "v2.4.0（相对 v2.3.3）\n\n1. eSIM 修复合并开关 esim_fix（合并原 eid_guard，默认关）：① EID 校验旁路（native splice，OS10/OS11 双工厂 sha 钉值 + bind mount，不改分区）；② 尝试去除电子围栏——内置 libxposed hook APK（作用域 com.hihonor.esimservice）把 checkLocationAndOperator() 短路成 0，意图让装/激活海外 eSIM 不再需要模拟位置；开关开时 pm 安装、关时卸载，需在 LSPosed 管理器启用一次。围栏是否真绕过、纯切换「System busy」真因均待社区验证（真机仅验模块自身装卸/挂载/面板正常、无回归无崩溃）。\n2. 面板 EID_LIVE 读数补 OS11 sha（原仅认 OS10，OS11 挂载 live 也误报 absent）。\n"
+  "version": "v2.4.6",
+  "versionCode": 48,
+  "zipUrl": "https://cdn.jsdelivr.net/gh/mengwuzhuanshou/HonorSchedulerUnlock@main/dist/HonorSchedulerUnlock-v2.4.6.zip",
+  "changelog": "v2.4.6（相对 v2.4.0）\n\n1. OTA 合并保护：检测到 Virtual A/B snapuserd 仍在合并时，本次开机 post-fs-data/service 全程跳过，避免中断系统槽写入；下次正常开机自动恢复，不延迟重试、不改用户配置。\n2. 滑动限频改为真实触摸事件驱动：阻塞读取 /dev/input/event2 的 BTN_TOUCH DOWN/UP，DOWN 限 CPU4 至 0.8GHz，UP 还原；移除 5Hz 触摸轮询、400ms hold timer 和 200ms 续写，launch boost 仍优先。\n3. UniPerf 触摸期拦截：5378 DOWN 激活触摸态，5379 UP 进入 post-UP 态并吞掉紧随其后的首个 4404；触摸期过滤 4400/4402/4404/4098/4112/13121，并在 PerfLockAcq 出口拦截同进程其它性能锁。\n4. PowerHAL 覆盖过滤：在 MTK PowerHAL 写 perfserv_freq 前，仅吞掉真实触摸期间 CPU4 上限 1.6GHz 的周期回写；其它簇、其它频率及抬手后的写入全部放行，原库 SHA256 不匹配时不挂载。\n5. 真机验收：30 次真实触摸、DOWN 总时长 3.023916 秒；非 launch-boost 样本 15/15 保持 0.8GHz，1.6GHz 覆盖 0 次，抬手恢复正常，两个 HAL 进程稳定。仍为事件驱动，无新增轮询或常驻监听。\n"
 }
