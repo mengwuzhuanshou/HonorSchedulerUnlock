@@ -38,7 +38,9 @@ fi
 UNIPERF_TGT=/vendor/lib64/libmtk_wrapper.so
 UNIPERF_SRC=$MODDIR/system/vendor/lib64/libmtk_wrapper.so
 UNIPERF_ST=$ST/uniperf_filter
-if [ -f "$UNIPERF_SRC" ] && [ -f "$UNIPERF_TGT" ]; then
+UNIPERF_STOCK_SHA=71f76a93c9107fc93f821e80291e8720ae67528122404a1f3783922bd67163ea
+if [ "$scroll_cap" != "0" ] && [ -f "$UNIPERF_SRC" ] && [ -f "$UNIPERF_TGT" ] \
+    && [ "$(sha256sum "$UNIPERF_TGT" 2>/dev/null | cut -d' ' -f1)" = "$UNIPERF_STOCK_SHA" ]; then
   chcon u:object_r:vendor_file:s0 "$UNIPERF_SRC" 2>/dev/null
   if grep -aq " $UNIPERF_TGT " /proc/mounts 2>/dev/null; then
     echo "on" > "$UNIPERF_ST" 2>/dev/null
